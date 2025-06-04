@@ -1,0 +1,167 @@
+version: '3.8'
+
+networks:
+  sneakdex-network:
+    driver: bridge
+
+volumes:
+  kafka-data:
+    driver: local
+  redis-data:
+    driver: local
+  index-data:
+    driver: local
+  crawler-data:
+    driver: local
+
+services:
+  # Infrastructure Services
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: sneakdex-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: sneakdex-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Application Services
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sneakdex-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://query-api:8000
+    depends_on:
+      query-api:
+        condition: service_healthy
+    networks:
+      - sneakdex-network
+    restart: unless-stopped
+
+  query-api:
+    build:
+      context: ./services/query-api
+      dockerfile: Dockerfile
+    container_name: sneakdex-query-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - INDEX_PATH=/app/data/index
+    volumes:
+      - index-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      indexer:
+        condition: service_started
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  crawler:
+    build:
+      context: ./services/crawler
+      dockerfile: Dockerfile
+    container_name: sneakdex-crawler
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - START_URLS=https://en.wikipedia.org,https://news.ycombinator.com
+      - CRAWL_DEPTH=3
+      - MAX_PAGES=1000
+    volumes:
+      - crawler-data:/app/data
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - sneakdex-network
+    restart: unless-stopped
+
+  parser:
+    build:
+      context: ./services/parser
+      dockerfile: Dockerfile
+    container_name: sneakdex-parser
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - KAFKA_TOPIC_PARSED=parsed-pages
+      - RUST_LOG=info
+    depends_on:
+      kafka:
+        condition: service_healthy
+      crawler:
+        condition: service_started
+    networks:
+      - sneakdex-network
+    restart: unless-stopped
+
+  indexer:
+    build:
+      context: ./services/indexer
+      dockerfile: Dockerfile
+    container_name: sneakdex-indexer
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_PARSED=parsed-pages
+      - INDEX_OUTPUT_PATH=/app/data/index
+      - TF_IDF_MIN_DF=2
+      - PYTHON_ENV=production
+    volumes:
+      - index-data:/app/data
+    depends_on:
+      kafka:
+        condition: service_healthy
+      parser:
+        condition: service_started
+    networks:
+      - sneakdex-network
+    restart: unless-stopped
+

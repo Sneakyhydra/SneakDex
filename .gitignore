@@ -1,1 +1,47 @@
+# macOS specific files
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Python specific files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+.env
+
+# Rust specific files
+target/
+Cargo.lock
+
+# Go specific files
+*.go
+vendor/
+/bin/
+/pkg/
+
+# Node.js specific files
+node_modules/
+npm-debug.log
+yarn-error.log
+.next/
+.env.local
+
+# Docker specific files
+docker-compose.override.yml
+
+# General
+*.swp
+*.swo
+*.bak
+*.tmp
+*.old
+.idea/
+.vscode/
+*.sqlite
+index.json
+
+# Logs
+*.log
+logs/
