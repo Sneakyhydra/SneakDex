@@ -552,10 +552,11 @@ def main():
                     message_count += 1
                     
                     # Save every 100 newly processed docs
-                    if indexer.processed_count - last_checkpoint >= 100:
-                        log.info(f"Checkpoint: Consumed {message_count} messages, processed {indexer.processed_count} documents")
+                    current_checkpoint = indexer.processed_count
+                    if current_checkpoint - last_checkpoint >= 100:
+                        log.info(f"Checkpoint: Consumed {message_count} messages, processed {current_checkpoint} documents")
                         indexer.build_and_save_final_index()
-                        last_checkpoint = indexer.processed_count
+                        last_checkpoint = current_checkpoint
                         log.info("Partial index saved")
 
                 except Exception as e:

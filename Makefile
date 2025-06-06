@@ -134,7 +134,7 @@ restart-dev:
 
 down-dev:
 	@echo "$(RED)🛑 Stopping and removing development containers...$(NC)"
-	$(DC_DEV) down
+	$(DC_DEV) down -v
 
 build-dev:
 	@echo "$(BLUE)🔨 Building development images...$(NC)"
@@ -184,7 +184,7 @@ restart-prod:
 
 down-prod:
 	@echo "$(RED)🛑 Stopping and removing production containers...$(NC)"
-	$(DC_PROD) down
+	$(DC_PROD) down -v
 
 build-prod:
 	@echo "$(BLUE)🔨 Building production images...$(NC)"

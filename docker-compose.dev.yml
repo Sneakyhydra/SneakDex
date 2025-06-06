@@ -85,10 +85,12 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - PORT=8000
-      - HOST=0.0.0.0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - INDEX_PATH=/app/data/index
     volumes:
-      - ./services/query-api:/app  # Mount local code for live reload
+      - ./services/query-api/api:/app/api
+      - ./services/query-api/requirements.txt:/app/requirements.txt
       - index-data:/app/data
     depends_on:
       redis:
@@ -97,6 +99,12 @@ services:
         condition: service_started
     networks:
       - sneakdex-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
     
   crawler-dev:
@@ -112,7 +120,11 @@ services:
       - CRAWL_DEPTH=3
       - MAX_PAGES=1000
     volumes:
-      - ./services/crawler:/app
+      - ./services/crawler/cmd:/app/cmd
+      - ./services/crawler/.air.toml:/app/.air.toml
+      - ./services/crawler/go.mod:/app/go.mod
+      - ./services/crawler/go.sum:/app/go.sum
+      - crawler-data:/app/data
     depends_on:
       kafka:
         condition: service_healthy
@@ -156,7 +168,8 @@ services:
       - TF_IDF_MIN_DF=2
       - PYTHON_ENV=development
     volumes:
-      - ./services/indexer:/app
+      - ./services/indexer/indexer:/app/indexer
+      - ./services/indexer/requirements.txt:/app/requirements.txt
       - index-data:/app/data
     depends_on:
       kafka:

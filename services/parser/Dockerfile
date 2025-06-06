@@ -1,5 +1,5 @@
 # Stage 1: Build the Rust application
-FROM rust:1.82-slim as builder
+FROM rust:1.82-slim AS builder
 
 # Set working directory
 WORKDIR /usr/src/parser
