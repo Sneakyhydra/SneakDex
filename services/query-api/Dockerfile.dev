@@ -1,0 +1,36 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies needed for build and runtime
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential gcc curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create non-root user and directories
+RUN groupadd -r apiuser && useradd -r -g apiuser apiuser
+RUN mkdir -p /app/data /home/apiuser/nltk_data && chown -R apiuser:apiuser /app /home/apiuser
+
+# Download nltk data
+USER apiuser
+RUN python -c "import nltk; nltk.download('punkt', download_dir='/home/apiuser/nltk_data'); nltk.download('punkt_tab', download_dir='/home/apiuser/nltk_data'); nltk.download('stopwords', download_dir='/home/apiuser/nltk_data')"
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV NLTK_DATA=/home/apiuser/nltk_data
+ENV PORT=8000
+ENV HOST=0.0.0.0
+
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run uvicorn with reload flag for live reload
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

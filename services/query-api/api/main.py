@@ -16,6 +16,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+import asyncio
 
 import joblib
 import nltk
@@ -196,6 +197,33 @@ class Index:
                 })
         
         return results
+    
+    def get_file_mod_times(self):
+        """Return last modified times of index files."""
+        return {
+            'tfidf': os.path.getmtime(self.index_path / 'tfidf_matrix.joblib'),
+            'features': os.path.getmtime(self.index_path / 'feature_names.joblib'),
+            'metadata': os.path.getmtime(self.index_path / 'document_metadata.csv'),
+            'vectorizer': os.path.getmtime(self.index_path / 'vectorizer.joblib'),
+        }
+    
+    def check_and_reload_if_updated(self):
+        """Check if index files have been updated and reload them."""
+        try:
+            current_mod_times = self.get_file_mod_times()
+            if not hasattr(self, 'last_mod_times'):
+                self.last_mod_times = current_mod_times
+                return
+            
+            if current_mod_times != self.last_mod_times:
+                log.info("Index files changed. Reloading index...")
+                if self.initialize():
+                    self.last_mod_times = current_mod_times
+                    log.info("Index reloaded successfully.")
+                else:
+                    log.warning("Index reload failed.")
+        except Exception as e:
+            log.error(f"Error checking index file updates: {e}")
 
 
 # Create FastAPI app
@@ -234,6 +262,11 @@ redis_client = redis.Redis(
 # Initialize index
 index = Index(config)
 
+async def index_reloader():
+    """Background task to reload index if files are updated."""
+    while True:
+        await asyncio.sleep(10)  # Check every 10 seconds
+        index.check_and_reload_if_updated()
 
 @app.on_event("startup")
 async def startup_event():
@@ -251,6 +284,7 @@ async def startup_event():
     if not index.initialize():
         log.warning("Index initialization failed, search will not work until index is available")
 
+    asyncio.create_task(index_reloader())
 
 @app.get("/health")
 async def health_check():

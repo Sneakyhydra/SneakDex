@@ -57,56 +57,54 @@ services:
     command: redis-server --appendonly yes
 
   # Application Services
-  frontend:
+  frontend-dev:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-    container_name: sneakdex-frontend
+      dockerfile: Dockerfile.dev
+    container_name: sneakdex-frontend-dev
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://query-api:8000
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://query-api-dev:8000
     depends_on:
-      query-api:
+      query-api-dev:
         condition: service_healthy
     networks:
       - sneakdex-network
     restart: unless-stopped
 
-  query-api:
+  query-api-dev:
     build:
       context: ./services/query-api
-      dockerfile: Dockerfile
-    container_name: sneakdex-query-api
+      dockerfile: Dockerfile.dev
+    container_name: sneakdex-query-api-dev
     ports:
       - "8000:8000"
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - INDEX_PATH=/app/data/index
+      - PORT=8000
+      - HOST=0.0.0.0
     volumes:
+      - ./services/query-api:/app  # Mount local code for live reload
       - index-data:/app/data
     depends_on:
       redis:
         condition: service_healthy
-      indexer:
+      indexer-dev:
         condition: service_started
     networks:
       - sneakdex-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
     restart: unless-stopped
-
-  crawler:
+    
+  crawler-dev:
     build:
       context: ./services/crawler
-      dockerfile: Dockerfile
-    container_name: sneakdex-crawler
+      dockerfile: Dockerfile.dev
+    container_name: sneakdex-crawler-dev
+    init: true 
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_HTML=raw-html
@@ -114,7 +112,7 @@ services:
       - CRAWL_DEPTH=3
       - MAX_PAGES=1000
     volumes:
-      - crawler-data:/app/data
+      - ./services/crawler:/app
     depends_on:
       kafka:
         condition: service_healthy
@@ -122,44 +120,49 @@ services:
       - sneakdex-network
     restart: unless-stopped
 
-  parser:
+
+  parser-dev:
     build:
       context: ./services/parser
-      dockerfile: Dockerfile
-    container_name: sneakdex-parser
+      dockerfile: Dockerfile.dev
+    container_name: sneakdex-parser-dev
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_HTML=raw-html
       - KAFKA_TOPIC_PARSED=parsed-pages
       - RUST_LOG=info
+    volumes:
+      - ./services/parser:/app
     depends_on:
       kafka:
         condition: service_healthy
-      crawler:
+      crawler-dev:
         condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
 
-  indexer:
+
+
+  indexer-dev:
     build:
       context: ./services/indexer
-      dockerfile: Dockerfile
-    container_name: sneakdex-indexer
+      dockerfile: Dockerfile.dev
+    container_name: sneakdex-indexer-dev
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_PARSED=parsed-pages
       - INDEX_OUTPUT_PATH=/app/data/index
       - TF_IDF_MIN_DF=2
-      - PYTHON_ENV=production
+      - PYTHON_ENV=development
     volumes:
+      - ./services/indexer:/app
       - index-data:/app/data
     depends_on:
       kafka:
         condition: service_healthy
-      parser:
+      parser-dev:
         condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
-
