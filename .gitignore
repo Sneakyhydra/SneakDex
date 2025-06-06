@@ -13,10 +13,8 @@ venv/
 
 # Rust specific files
 target/
-Cargo.lock
 
 # Go specific files
-*.go
 vendor/
 /bin/
 /pkg/
