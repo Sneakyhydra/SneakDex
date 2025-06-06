@@ -3,43 +3,23 @@
 .AppleDouble
 .LSOverride
 
-# Python specific files
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-venv/
-.env
+# General IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Rust specific files
-target/
-
-# Go specific files
-vendor/
-/bin/
-/pkg/
-
-# Node.js specific files
-node_modules/
-npm-debug.log
-yarn-error.log
-.next/
-.env.local
+# General temporary files
+*.bak
+*.tmp
+*.old
 
 # Docker specific files
 docker-compose.override.yml
 
-# General
-*.swp
-*.swo
-*.bak
-*.tmp
-*.old
-.idea/
-.vscode/
+# Project specific
 *.sqlite
-index.json
 
-# Logs
+# Logs (project-wide)
 *.log
 logs/
