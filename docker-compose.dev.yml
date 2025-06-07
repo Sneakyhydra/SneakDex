@@ -70,9 +70,9 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://query-api-dev:8000
-    depends_on:
-      query-api-dev:
-        condition: service_healthy
+    # depends_on:
+    #   query-api-dev:
+    #     condition: service_healthy
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -95,8 +95,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      indexer-dev:
-        condition: service_started
+      # indexer-dev:
+      #   condition: service_started
     networks:
       - sneakdex-network
     healthcheck:
@@ -148,8 +148,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      crawler-dev:
-        condition: service_started
+      # crawler-dev:
+      #   condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -174,8 +174,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      parser-dev:
-        condition: service_started
+      # parser-dev:
+      #   condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped

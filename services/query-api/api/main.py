@@ -280,10 +280,6 @@ async def startup_event():
     except redis.ConnectionError:
         log.warning("Could not connect to Redis, caching will be disabled")
     
-    # Initialize index
-    if not index.initialize():
-        log.warning("Index initialization failed, search will not work until index is available")
-
     asyncio.create_task(index_reloader())
 
 @app.get("/health")

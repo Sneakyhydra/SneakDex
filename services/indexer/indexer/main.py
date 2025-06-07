@@ -240,7 +240,7 @@ class IncrementalTfIdfIndexer:
             
             log.info(f"Added batch of {len(batch_data)} documents. Total: {self.document_count}")
     
-    def build_final_tfidf_index(self) -> Tuple[np.ndarray, List[str], pd.DataFrame]:
+    def build_final_tfidf_index(self) -> Tuple[np.ndarray, List[str], pd.DataFrame, int]:
         """Build final TF-IDF index from all collected documents."""
         with self.lock:
             if not self.document_texts:
@@ -273,7 +273,7 @@ class IncrementalTfIdfIndexer:
             log.info(f"Created final TF-IDF matrix with shape {tfidf_matrix.shape}")
             log.info(f"Vocabulary size: {len(feature_names)}")
             
-            return tfidf_matrix, feature_names, df
+            return tfidf_matrix, feature_names, df, len(self.document_texts)
     
     def save_intermediate_index(self, output_path: Path) -> None:
         """Save intermediate index state."""
@@ -452,11 +452,12 @@ class ParallelIndexer:
         
         log.info("All workers stopped")
     
-    def build_and_save_final_index(self) -> None:
+    def build_and_save_final_index(self) -> int:
         """Build and save the final TF-IDF index."""
         try:
             log.info("Building final TF-IDF index...")
-            tfidf_matrix, feature_names, df = self.indexer.build_final_tfidf_index()
+            self.document_store.get_document_count()
+            tfidf_matrix, feature_names, df, curr_count = self.indexer.build_final_tfidf_index()
             
             # Save final index
             output_path = Path(self.config.index_output_path)
@@ -484,6 +485,7 @@ class ParallelIndexer:
                     pass
             
             log.info("Final index saved successfully")
+            return curr_count
             
         except Exception as e:
             log.error(f"Error building final index: {e}")
@@ -524,69 +526,74 @@ def main():
         
         last_checkpoint = 0  # Track when we last saved
 
-        try:
-            while True:
-                if config.max_docs and message_count >= config.max_docs:
-                    log.info(f"Reached maximum document count ({config.max_docs}), stopping consumption")
-                    break
-                
-                msg = consumer.poll(timeout=5.0)  # wait up to 5 seconds for a new message
-                
-                if msg is None:
-                    log.info("No message received. Waiting for new messages...")
-                    continue  # Instead of retry_count, just keep listening
-                
-                if msg.error():
-                    if msg.error().code() == KafkaError._PARTITION_EOF:
-                        log.info("Reached end of partition")
-                        continue
-                    else:
-                        log.error(f"Consumer error: {msg.error()}")
-                        continue
-                
-                try:
-                    value = msg.value().decode('utf-8')
-                    parsed_page = json.loads(value)
+        while True:
+            try:
+                while True:
+                    if config.max_docs and message_count >= config.max_docs:
+                        log.info(f"Reached maximum document count ({config.max_docs}), stopping consumption")
+                        break
                     
-                    indexer.process_message(parsed_page)
-                    message_count += 1
+                    msg = consumer.poll(timeout=5.0)  # wait up to 5 seconds for a new message
                     
-                    # Save every 100 newly processed docs
-                    current_checkpoint = indexer.processed_count
-                    if current_checkpoint - last_checkpoint >= 100:
-                        log.info(f"Checkpoint: Consumed {message_count} messages, processed {current_checkpoint} documents")
-                        indexer.build_and_save_final_index()
-                        last_checkpoint = current_checkpoint
-                        log.info("Partial index saved")
+                    if msg is None:
+                        log.info("No message received. Waiting for new messages...")
+                        # continue  # Instead of retry_count, just keep listening
+                        # Try a couple times
+                        time.sleep(5)
+                        if retry_count>=max_retries:
+                            break
+                        retry_count+=1
+                        continue
+                    
+                    if msg.error():
+                        if msg.error().code() == KafkaError._PARTITION_EOF:
+                            log.info("Reached end of partition")
+                            continue
+                        else:
+                            log.error(f"Consumer error: {msg.error()}")
+                            continue
+                    
+                    try:
+                        value = msg.value().decode('utf-8')
+                        parsed_page = json.loads(value)
+                        
+                        indexer.process_message(parsed_page)
+                        message_count += 1
+                        
+                        if indexer.processed_count - last_checkpoint >= 100:
+                            log.info(f"Checkpoint: Consumed {message_count} messages, processed {indexer.processed_count} documents")
+                            curr_count = indexer.build_and_save_final_index()
+                            last_checkpoint = (curr_count // 100) * 100
+                            log.info("Partial index saved")
 
-                except Exception as e:
-                    log.error(f"Error processing message: {e}")
-            
-            # Stop workers and process remaining items
-            indexer.stop_workers()
-            
-            # Build and save final index if we have documents
-            if indexer.processed_count > 0:
-                indexer.build_and_save_final_index()
-                log.info(f"Parallel indexing completed successfully. Total documents: {indexer.processed_count}")
-            else:
-                log.warning("No documents were processed, index not created")
+                    except Exception as e:
+                        log.error(f"Error processing message: {e}")
                 
-        except KeyboardInterrupt:
-            log.info("Interrupted by user, shutting down...")
-            indexer.stop_workers()
-            
-            # Still try to save what we have
-            if indexer.processed_count > 0:
-                log.info("Saving partial index...")
-                indexer.build_and_save_final_index()
+                # Stop workers and process remaining items
+                indexer.stop_workers()
                 
-        finally:
-            consumer.close()
-            log.info("Consumer closed")
-        
-        return 0
-        
+                # Build and save final index if we have documents
+                if indexer.processed_count > 0:
+                    indexer.build_and_save_final_index()
+                    log.info(f"Parallel indexing completed successfully. Total documents: {indexer.processed_count}")
+                else:
+                    log.warning("No documents were processed, index not created")
+                    
+            except KeyboardInterrupt:
+                log.info("Interrupted by user, shutting down...")
+                indexer.stop_workers()
+                
+                # Still try to save what we have
+                if indexer.processed_count > 0:
+                    log.info("Saving partial index...")
+                    indexer.build_and_save_final_index()
+                    
+            # finally:
+            #     consumer.close()
+            #     log.info("Consumer closed")
+            
+            # return 0
+            
     except Exception as e:
         log.exception(f"Unhandled exception: {e}")
         return 1
