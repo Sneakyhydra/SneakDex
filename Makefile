@@ -118,7 +118,7 @@ help:
 
 up-dev:
 	@echo "$(GREEN)🚀 Starting development environment...$(NC)"
-	$(DC_DEV) up --build -d
+	COMPOSE_BAKE=true $(DC_DEV) up --build -d
 
 start-dev:
 	@echo "$(GREEN)▶️  Starting development services (no build)...$(NC)"
@@ -138,11 +138,11 @@ down-dev:
 
 build-dev:
 	@echo "$(BLUE)🔨 Building development images...$(NC)"
-	$(DC_DEV) build
+	COMPOSE_BAKE=true $(DC_DEV) build
 
 rebuild-dev:
 	@echo "$(BLUE)🔨 Force rebuilding development images...$(NC)"
-	$(DC_DEV) build --no-cache
+	COMPOSE_BAKE=true $(DC_DEV) build --no-cache
 
 logs-dev:
 	@echo "$(CYAN)📋 Viewing development logs...$(NC)"
@@ -155,7 +155,7 @@ status-dev:
 reset-dev:
 	@echo "$(RED)🔄 Resetting development environment...$(NC)"
 	$(DC_DEV) down -v
-	$(DC_DEV) up --build -d
+	COMPOSE_BAKE=true $(DC_DEV) up --build -d
 
 clean-dev:
 	@echo "$(RED)🧹 Cleaning development environment...$(NC)"
@@ -168,7 +168,7 @@ clean-dev:
 
 up-prod:
 	@echo "$(GREEN)🚀 Starting production environment...$(NC)"
-	$(DC_PROD) up --build -d
+	COMPOSE_BAKE=true $(DC_PROD) up --build -d
 
 start-prod:
 	@echo "$(GREEN)▶️  Starting production services (no build)...$(NC)"
@@ -188,11 +188,11 @@ down-prod:
 
 build-prod:
 	@echo "$(BLUE)🔨 Building production images...$(NC)"
-	$(DC_PROD) build
+	COMPOSE_BAKE=true $(DC_PROD) build
 
 rebuild-prod:
 	@echo "$(BLUE)🔨 Force rebuilding production images...$(NC)"
-	$(DC_PROD) build --no-cache
+	COMPOSE_BAKE=true $(DC_PROD) build --no-cache
 
 logs-prod:
 	@echo "$(CYAN)📋 Viewing production logs...$(NC)"
@@ -205,7 +205,7 @@ status-prod:
 reset-prod:
 	@echo "$(RED)🔄 Resetting production environment...$(NC)"
 	$(DC_PROD) down -v
-	$(DC_PROD) up --build -d
+	COMPOSE_BAKE=true $(DC_PROD) up --build -d
 
 clean-prod:
 	@echo "$(RED)🧹 Cleaning production environment...$(NC)"
