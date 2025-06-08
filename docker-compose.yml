@@ -4,16 +4,11 @@ networks:
 
 volumes:
   kafka-data:
-    driver: local
   redis-data:
-    driver: local
   index-data:
-    driver: local
   crawler-data:
-    driver: local
 
 services:
-  # Infrastructure Services
   kafka:
     image: bitnami/kafka:latest
     container_name: sneakdex-kafka
@@ -22,7 +17,8 @@ services:
     environment:
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
@@ -44,6 +40,7 @@ services:
     container_name: sneakdex-redis
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
     networks:
@@ -54,9 +51,7 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
-    command: redis-server --appendonly yes
 
-  # Application Services
   frontend:
     build:
       context: ./frontend
@@ -112,11 +107,13 @@ services:
       - KAFKA_TOPIC_HTML=raw-html
       - START_URLS=https://en.wikipedia.org,https://news.ycombinator.com
       - CRAWL_DEPTH=3
-      - MAX_PAGES=1000
+      - MAX_PAGES=10000
     volumes:
       - crawler-data:/app/data
     depends_on:
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - sneakdex-network
@@ -162,4 +159,3 @@ services:
     networks:
       - sneakdex-network
     restart: unless-stopped
-

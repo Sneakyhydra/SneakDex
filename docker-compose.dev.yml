@@ -4,16 +4,11 @@ networks:
 
 volumes:
   kafka-data:
-    driver: local
   redis-data:
-    driver: local
   index-data:
-    driver: local
   crawler-data:
-    driver: local
 
 services:
-  # Infrastructure Services
   kafka:
     image: bitnami/kafka:latest
     container_name: sneakdex-kafka
@@ -22,7 +17,8 @@ services:
     environment:
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
@@ -44,6 +40,7 @@ services:
     container_name: sneakdex-redis
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
     networks:
@@ -54,9 +51,7 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
-    command: redis-server --appendonly yes
 
-  # Application Services
   frontend-dev:
     build:
       context: ./frontend
@@ -70,9 +65,9 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://query-api-dev:8000
-    # depends_on:
-    #   query-api-dev:
-    #     condition: service_healthy
+    depends_on:
+      query-api-dev:
+        condition: service_healthy
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -95,8 +90,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      # indexer-dev:
-      #   condition: service_started
+      indexer-dev:
+        condition: service_started
     networks:
       - sneakdex-network
     healthcheck:
@@ -116,9 +111,9 @@ services:
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_HTML=raw-html
-      - START_URLS=https://en.wikipedia.org,https://news.ycombinator.com
+      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://techcrunch.com,https://www.theverge.com,https://www.wired.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://www.coursera.org,https://www.khanacademy.org,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://openai.com/blog
       - CRAWL_DEPTH=3
-      - MAX_PAGES=1000
+      - MAX_PAGES=10000
     volumes:
       - ./services/crawler/cmd:/app/cmd
       - ./services/crawler/.air.toml:/app/.air.toml
@@ -127,6 +122,8 @@ services:
       - crawler-data:/app/data
     depends_on:
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - sneakdex-network
@@ -148,8 +145,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      # crawler-dev:
-      #   condition: service_started
+      crawler-dev:
+        condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -174,8 +171,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      # parser-dev:
-      #   condition: service_started
+      parser-dev:
+        condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
