@@ -5,15 +5,16 @@ networks:
 volumes:
   kafka-data:
   redis-data:
-  index-data:
   crawler-data:
+  index-data:
 
 services:
   kafka:
     image: bitnami/kafka:latest
     container_name: sneakdex-kafka
     ports:
-      - "9092:9092"
+      - "9092:9092" # Kafka Broker (used by producers/consumers)
+      - "9093:9093" # Kafka Controller (for internal metadata sync)
     environment:
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
@@ -22,7 +23,9 @@ services:
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true  # Auto-create topics when publishing
+      - ALLOW_PLAINTEXT_LISTENER=yes              # Simplifies dev setup (no TLS)
+      - KAFKA_JMX_PORT=9999                       # JMX enabled for metrics
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
@@ -32,7 +35,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 30s
     restart: unless-stopped
 
   redis:
@@ -51,23 +54,75 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
-
-  frontend-dev:
+  
+  crawler-dev:
     build:
-      context: ./frontend
+      context: ./services/crawler
       dockerfile: Dockerfile.dev
-    container_name: sneakdex-frontend-dev
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+    container_name: sneakdex-crawler-dev
+    init: true 
     environment:
-      - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://query-api-dev:8000
-    depends_on:
-      query-api-dev:
-        condition: service_healthy
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://techcrunch.com,https://www.theverge.com,https://www.wired.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://www.coursera.org,https://www.khanacademy.org,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://openai.com/blog
+      - CRAWL_DEPTH=3
+      - MAX_PAGES=10000
+    volumes:
+      - ./services/crawler/cmd:/app/cmd
+      - ./services/crawler/.air.toml:/app/.air.toml
+      - ./services/crawler/go.mod:/app/go.mod
+      - ./services/crawler/go.sum:/app/go.sum
+      - crawler-data:/app/data
+    # depends_on:
+    #   kafka:
+    #     condition: service_healthy
+    #   redis:
+    #     condition: service_healthy
+    networks:
+      - sneakdex-network
+    restart: unless-stopped
+
+  parser-dev:
+    build:
+      context: ./services/parser
+      dockerfile: Dockerfile.dev
+    container_name: sneakdex-parser-dev
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - KAFKA_TOPIC_PARSED=parsed-pages
+      - RUST_LOG=info
+    volumes:
+      - ./services/parser:/app
+    # depends_on:
+    #   kafka:
+    #     condition: service_healthy
+    #   crawler-dev:
+    #     condition: service_started
+    networks:
+      - sneakdex-network
+    restart: unless-stopped
+
+  indexer-dev:
+    build:
+      context: ./services/indexer
+      dockerfile: Dockerfile.dev
+    container_name: sneakdex-indexer-dev
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_PARSED=parsed-pages
+      - INDEX_OUTPUT_PATH=/app/data/index
+      - TF_IDF_MIN_DF=2
+      - PYTHON_ENV=development
+    volumes:
+      - ./services/indexer/indexer:/app/indexer
+      - ./services/indexer/requirements.txt:/app/requirements.txt
+      - index-data:/app/data
+    # depends_on:
+    #   kafka:
+    #     condition: service_healthy
+    #   parser-dev:
+    #     condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -87,11 +142,11 @@ services:
       - ./services/query-api/api:/app/api
       - ./services/query-api/requirements.txt:/app/requirements.txt
       - index-data:/app/data
-    depends_on:
-      redis:
-        condition: service_healthy
-      indexer-dev:
-        condition: service_started
+    # depends_on:
+    #   redis:
+    #     condition: service_healthy
+    #   indexer-dev:
+    #     condition: service_started
     networks:
       - sneakdex-network
     healthcheck:
@@ -101,78 +156,23 @@ services:
       retries: 3
       start_period: 5s
     restart: unless-stopped
-    
-  crawler-dev:
+
+  frontend-dev:
     build:
-      context: ./services/crawler
+      context: ./frontend
       dockerfile: Dockerfile.dev
-    container_name: sneakdex-crawler-dev
-    init: true 
-    environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_HTML=raw-html
-      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://techcrunch.com,https://www.theverge.com,https://www.wired.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://www.coursera.org,https://www.khanacademy.org,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://openai.com/blog
-      - CRAWL_DEPTH=3
-      - MAX_PAGES=10000
+    container_name: sneakdex-frontend-dev
+    ports:
+      - "3000:3000"
     volumes:
-      - ./services/crawler/cmd:/app/cmd
-      - ./services/crawler/.air.toml:/app/.air.toml
-      - ./services/crawler/go.mod:/app/go.mod
-      - ./services/crawler/go.sum:/app/go.sum
-      - crawler-data:/app/data
-    depends_on:
-      kafka:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - sneakdex-network
-    restart: unless-stopped
-
-
-  parser-dev:
-    build:
-      context: ./services/parser
-      dockerfile: Dockerfile.dev
-    container_name: sneakdex-parser-dev
+      - ./frontend:/app
+      - /app/node_modules
     environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_HTML=raw-html
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - RUST_LOG=info
-    volumes:
-      - ./services/parser:/app
-    depends_on:
-      kafka:
-        condition: service_healthy
-      crawler-dev:
-        condition: service_started
-    networks:
-      - sneakdex-network
-    restart: unless-stopped
-
-
-
-  indexer-dev:
-    build:
-      context: ./services/indexer
-      dockerfile: Dockerfile.dev
-    container_name: sneakdex-indexer-dev
-    environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - INDEX_OUTPUT_PATH=/app/data/index
-      - TF_IDF_MIN_DF=2
-      - PYTHON_ENV=development
-    volumes:
-      - ./services/indexer/indexer:/app/indexer
-      - ./services/indexer/requirements.txt:/app/requirements.txt
-      - index-data:/app/data
-    depends_on:
-      kafka:
-        condition: service_healthy
-      parser-dev:
-        condition: service_started
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://query-api-dev:8000
+    # depends_on:
+    #   query-api-dev:
+    #     condition: service_healthy
     networks:
       - sneakdex-network
     restart: unless-stopped

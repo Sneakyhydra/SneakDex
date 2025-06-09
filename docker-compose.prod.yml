@@ -5,15 +5,16 @@ networks:
 volumes:
   kafka-data:
   redis-data:
-  index-data:
   crawler-data:
+  index-data:
 
 services:
   kafka:
     image: bitnami/kafka:latest
     container_name: sneakdex-kafka
     ports:
-      - "9092:9092"
+      - "9092:9092" # Kafka Broker (used by producers/consumers)
+      - "9093:9093" # Kafka Controller (for internal metadata sync)
     environment:
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
@@ -22,7 +23,9 @@ services:
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true  # Auto-create topics when publishing
+      - ALLOW_PLAINTEXT_LISTENER=yes              # Simplifies dev setup (no TLS)
+      - KAFKA_JMX_PORT=9999                       # JMX enabled for metrics
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
@@ -32,7 +35,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 30s
     restart: unless-stopped
 
   redis:
@@ -52,51 +55,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: sneakdex-frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://query-api:8000
-    depends_on:
-      query-api:
-        condition: service_healthy
-    networks:
-      - sneakdex-network
-    restart: unless-stopped
-
-  query-api:
-    build:
-      context: ./services/query-api
-      dockerfile: Dockerfile
-    container_name: sneakdex-query-api
-    ports:
-      - "8000:8000"
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - INDEX_PATH=/app/data/index
-    volumes:
-      - index-data:/app/data
-    depends_on:
-      redis:
-        condition: service_healthy
-      indexer:
-        condition: service_started
-    networks:
-      - sneakdex-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
-
   crawler:
     build:
       context: ./services/crawler
@@ -105,7 +63,7 @@ services:
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_HTML=raw-html
-      - START_URLS=https://en.wikipedia.org,https://news.ycombinator.com
+      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://techcrunch.com,https://www.theverge.com,https://www.wired.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://www.coursera.org,https://www.khanacademy.org,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://openai.com/blog
       - CRAWL_DEPTH=3
       - MAX_PAGES=10000
     volumes:
@@ -156,6 +114,51 @@ services:
         condition: service_healthy
       parser:
         condition: service_started
+    networks:
+      - sneakdex-network
+    restart: unless-stopped
+
+  query-api:
+    build:
+      context: ./services/query-api
+      dockerfile: Dockerfile
+    container_name: sneakdex-query-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - INDEX_PATH=/app/data/index
+    volumes:
+      - index-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      indexer:
+        condition: service_started
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sneakdex-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://query-api:8000
+    depends_on:
+      query-api:
+        condition: service_healthy
     networks:
       - sneakdex-network
     restart: unless-stopped
