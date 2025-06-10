@@ -6,6 +6,7 @@ require (
 	github.com/IBM/sarama v1.42.2
 	github.com/gocolly/colly/v2 v2.1.0
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/redis/go-redis/v9 v9.10.0
 	github.com/sirupsen/logrus v1.9.3
 )
 
@@ -37,7 +38,6 @@ require (
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
-	github.com/redis/go-redis/v9 v9.10.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/temoto/robotstxt v1.1.2 // indirect
 	golang.org/x/crypto v0.19.0 // indirect
