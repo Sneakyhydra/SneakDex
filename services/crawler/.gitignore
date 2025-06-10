@@ -21,8 +21,10 @@ vendor/
 go.work
 go.work.sum
 
-# env file
+# Env and Data files
 .env
-
 tmp/
 data/
+
+# Log files
+*.log

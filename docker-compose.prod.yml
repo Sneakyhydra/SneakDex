@@ -16,16 +16,16 @@ services:
       - "9092:9092" # Kafka Broker (used by producers/consumers)
       - "9093:9093" # Kafka Controller (for internal metadata sync)
     environment:
-      - KAFKA_CFG_NODE_ID=1
-      - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true  # Auto-create topics when publishing
-      - ALLOW_PLAINTEXT_LISTENER=yes              # Simplifies dev setup (no TLS)
-      - KAFKA_JMX_PORT=9999                       # JMX enabled for metrics
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_LISTENERS: PLAIN_TEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true  # Auto-create topics when publishing
+      ALLOW_PLAINTEXT_LISTENER: yes              # Simplifies dev setup (no TLS)
+      KAFKA_JMX_PORT: 9999                       # JMX enabled for metrics
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
@@ -61,11 +61,30 @@ services:
       dockerfile: Dockerfile
     container_name: sneakdex-crawler
     environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_HTML=raw-html
-      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://techcrunch.com,https://www.theverge.com,https://www.wired.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://www.coursera.org,https://www.khanacademy.org,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://openai.com/blog
-      - CRAWL_DEPTH=3
-      - MAX_PAGES=10000
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_HTML: raw-html
+      START_URLS: >
+        https://en.wikipedia.org/wiki/Special:Random,
+        https://simple.wikipedia.org/wiki/Special:Random,
+        https://news.ycombinator.com,
+        https://techcrunch.com,
+        https://www.theverge.com,
+        https://www.wired.com,
+        https://www.reuters.com/news/archive/worldNews,
+        https://www.bbc.com/news,
+        https://github.com/trending,
+        https://stackoverflow.com/questions,
+        https://dev.to,
+        https://developer.mozilla.org/en-US/docs/Web,
+        https://arxiv.org/list/cs/new,
+        https://www.coursera.org,
+        https://www.khanacademy.org,
+        https://eng.uber.com,
+        https://netflixtechblog.com,
+        https://blog.cloudflare.com,
+        https://openai.com/blog
+      CRAWL_DEPTH: 3
+      MAX_PAGES: 10000
     volumes:
       - crawler-data:/app/data
     depends_on:
@@ -83,10 +102,10 @@ services:
       dockerfile: Dockerfile
     container_name: sneakdex-parser
     environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_HTML=raw-html
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - RUST_LOG=info
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_HTML: raw-html
+      KAFKA_TOPIC_PARSED: parsed-pages
+      RUST_LOG: info
     depends_on:
       kafka:
         condition: service_healthy
@@ -102,11 +121,11 @@ services:
       dockerfile: Dockerfile
     container_name: sneakdex-indexer
     environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - INDEX_OUTPUT_PATH=/app/data/index
-      - TF_IDF_MIN_DF=2
-      - PYTHON_ENV=production
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC_PARSED: parsed-pages
+      INDEX_OUTPUT_PATH: /app/data/index
+      TF_IDF_MIN_DF: 2
+      PYTHON_ENV: production
     volumes:
       - index-data:/app/data
     depends_on:
@@ -126,9 +145,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - INDEX_PATH=/app/data/index
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      INDEX_PATH: /app/data/index
     volumes:
       - index-data:/app/data
     depends_on:
@@ -154,8 +173,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://query-api:8000
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://query-api:8000
     depends_on:
       query-api:
         condition: service_healthy
