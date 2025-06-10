@@ -2,7 +2,7 @@
 FROM golang:1.24-alpine
 
 # Install dependencies
-RUN apk add --no-cache git ca-certificates tzdata bash curl
+RUN apk add --no-cache git ca-certificates tzdata
 
 # Install Air
 RUN go install github.com/air-verse/air@latest
@@ -18,7 +18,7 @@ ENV GO_ENV=development
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy all source code
+# Copy all source code (Fallback for volume mounts)
 COPY . .
 
 # Create tmp directory for Air
