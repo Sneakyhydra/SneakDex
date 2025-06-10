@@ -13,19 +13,17 @@ services:
     image: bitnami/kafka:latest
     container_name: sneakdex-kafka
     ports:
-      - "9092:9092" # Kafka Broker (used by producers/consumers)
-      - "9093:9093" # Kafka Controller (for internal metadata sync)
+      - "9092:9092"
     environment:
-      KAFKA_CFG_NODE_ID: 1
-      KAFKA_CFG_PROCESS_ROLES: broker,controller
-      KAFKA_CFG_LISTENERS: PLAIN_TEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true  # Auto-create topics when publishing
-      ALLOW_PLAINTEXT_LISTENER: yes              # Simplifies dev setup (no TLS)
-      KAFKA_JMX_PORT: 9999                       # JMX enabled for metrics
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
@@ -35,7 +33,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     restart: unless-stopped
 
   redis:
@@ -53,6 +51,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 15s
     restart: unless-stopped
   
   crawler-dev:
@@ -64,13 +63,17 @@ services:
     environment:
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_HTML: raw-html
+      KAFKA_RETRY_MAX: 3
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: 0
+      REDIS_TIMEOUT: 60s
+      REDIS_RETRY_MAX: 3
       START_URLS: >
         https://en.wikipedia.org/wiki/Special:Random,
         https://simple.wikipedia.org/wiki/Special:Random,
         https://news.ycombinator.com,
-        https://techcrunch.com,
-        https://www.theverge.com,
-        https://www.wired.com,
         https://www.reuters.com/news/archive/worldNews,
         https://www.bbc.com/news,
         https://github.com/trending,
@@ -78,25 +81,31 @@ services:
         https://dev.to,
         https://developer.mozilla.org/en-US/docs/Web,
         https://arxiv.org/list/cs/new,
-        https://www.coursera.org,
-        https://www.khanacademy.org,
         https://eng.uber.com,
         https://netflixtechblog.com,
-        https://blog.cloudflare.com,
-        https://openai.com/blog
+        https://blog.cloudflare.com
       CRAWL_DEPTH: 3
       MAX_PAGES: 10000
+      URL_WHITELIST: ""
+      URL_BLACKLIST: ""
+      MAX_CONCURRENCY: 50
+      REQUEST_TIMEOUT: 30s
+      REQUEST_DELAY: 100ms
+      MAX_CONTENT_SIZE: 2621440 # 2.5 MB
+      LOG_LEVEL: info
+      USER_AGENT: SneakdexCrawler/1.0
+      ENABLE_DEBUG: false
+      HEALTH_CHECK_PORT: 8080
     volumes:
       - ./services/crawler/cmd:/app/cmd
       - ./services/crawler/.air.toml:/app/.air.toml
       - ./services/crawler/go.mod:/app/go.mod
       - ./services/crawler/go.sum:/app/go.sum
-      - crawler-data:/app/data
-    # depends_on:
-    #   kafka:
-    #     condition: service_healthy
-    #   redis:
-    #     condition: service_healthy
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -113,11 +122,11 @@ services:
       RUST_LOG: info
     volumes:
       - ./services/parser:/app
-    # depends_on:
-    #   kafka:
-    #     condition: service_healthy
-    #   crawler-dev:
-    #     condition: service_started
+    depends_on:
+      kafka:
+        condition: service_healthy
+      crawler-dev:
+        condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -137,11 +146,11 @@ services:
       - ./services/indexer/indexer:/app/indexer
       - ./services/indexer/requirements.txt:/app/requirements.txt
       - index-data:/app/data
-    # depends_on:
-    #   kafka:
-    #     condition: service_healthy
-    #   parser-dev:
-    #     condition: service_started
+    depends_on:
+      kafka:
+        condition: service_healthy
+      parser-dev:
+        condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped
@@ -161,11 +170,11 @@ services:
       - ./services/query-api/api:/app/api
       - ./services/query-api/requirements.txt:/app/requirements.txt
       - index-data:/app/data
-    # depends_on:
-    #   redis:
-    #     condition: service_healthy
-    #   indexer-dev:
-    #     condition: service_started
+    depends_on:
+      redis:
+        condition: service_healthy
+      indexer-dev:
+        condition: service_started
     networks:
       - sneakdex-network
     healthcheck:
@@ -173,7 +182,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 60s
     restart: unless-stopped
 
   frontend-dev:
@@ -189,9 +198,9 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://query-api-dev:8000
-    # depends_on:
-    #   query-api-dev:
-    #     condition: service_healthy
+    depends_on:
+      query-api-dev:
+        condition: service_healthy
     networks:
       - sneakdex-network
     restart: unless-stopped
