@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"math"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,7 +54,7 @@ type Config struct {
 	MaxConcurrency int           `envconfig:"MAX_CONCURRENCY" default:"50"`
 	RequestTimeout time.Duration `envconfig:"REQUEST_TIMEOUT" default:"30s"`
 	RequestDelay   time.Duration `envconfig:"REQUEST_DELAY" default:"100ms"`
-	MaxContentSize int64         `envconfig:"MAX_CONTENT_SIZE" default:"2621440"` // 2.5MB
+	MaxContentSize int           `envconfig:"MAX_CONTENT_SIZE" default:"2621440"` // 2.5MB/10MB
 
 	// Application Settings
 	LogLevel        string `envconfig:"LOG_LEVEL" default:"info"`
@@ -161,6 +162,7 @@ type Metrics struct {
 	StartTime       time.Time
 }
 
+// IncrementMetrics provides atomic increment methods for crawler metrics
 func (metric *Metrics) IncrementPagesProcessed()  { atomic.AddInt64(&metric.PagesProcessed, 1) }
 func (metric *Metrics) IncrementPagesSuccessful() { atomic.AddInt64(&metric.PagesSuccessful, 1) }
 func (metric *Metrics) IncrementPagesFailed()     { atomic.AddInt64(&metric.PagesFailed, 1) }
@@ -170,9 +172,7 @@ func (metric *Metrics) IncrementRedisSuccessful() { atomic.AddInt64(&metric.Redi
 func (metric *Metrics) IncrementRedisFailed()     { atomic.AddInt64(&metric.RedisFailed, 1) }
 
 // Uptime returns the duration since the crawler started.
-func (metric *Metrics) Uptime() time.Duration {
-	return time.Since(metric.StartTime)
-}
+func (metric *Metrics) Uptime() time.Duration { return time.Since(metric.StartTime) }
 
 // GetStats returns a map of crawler statistics
 func (metric *Metrics) GetStats() map[string]any {
@@ -192,22 +192,67 @@ func (metric *Metrics) GetStats() map[string]any {
 // Crawler initialization and setup
 // ------------------------------------------------------------------
 
+// URLValidator handles URL validation with caching and improved performance
+type URLValidator struct {
+	whitelist []string
+	blacklist []string
+	log       *logrus.Logger
+
+	// Caching for DNS lookups
+	dnsCache        sync.Map // map[string]DNSResult
+	dnsCacheTimeout time.Duration
+
+	// Caching for domain checks
+	domainCache sync.Map // map[string]bool
+
+	// Configuration
+	allowPrivateIPs bool
+	allowLoopback   bool
+	skipDNSCheck    bool
+	maxURLLength    int
+}
+
+type DNSResult struct {
+	IPs       []net.IP
+	Timestamp time.Time
+	Valid     bool
+}
+
 // Crawler represents the main crawler instance
 type Crawler struct {
-	config       Config
-	log          *logrus.Logger
-	redisClient  *redis.Client
-	producer     sarama.SyncProducer
-	metrics      *Metrics
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
+	// Core configuration and dependencies
+	config      Config
+	log         *logrus.Logger
+	redisClient *redis.Client
+	producer    sarama.SyncProducer
+	metrics     *Metrics
+
+	// Context and cancellation
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// Concurrency control
+	wg            sync.WaitGroup
+	shutdown      chan struct{}
+	shutdownOnce  sync.Once
+	inFlightPages int64
+
+	// URL management and filtering
 	whitelist    []string
 	blacklist    []string
-	shutdown     chan struct{}
-	shutdownOnce sync.Once
 	visited      sync.Map
+	requeued     sync.Map
+	urlValidator *URLValidator
 }
+
+// IncrementInFlightPages increments the count of in-flight pages being processed
+func (crawler *Crawler) IncrementInFlightPages() { atomic.AddInt64(&crawler.inFlightPages, 1) }
+
+// DecrementInFlightPages decrements the count of in-flight pages being processed
+func (crawler *Crawler) DecrementInFlightPages() { atomic.AddInt64(&crawler.inFlightPages, -1) }
+
+// GetInFlightPages returns the current number of in-flight pages being processed
+func (crawler *Crawler) GetInFlightPages() int64 { return atomic.LoadInt64(&crawler.inFlightPages) }
 
 // initializeRedis sets up Redis client with proper configuration
 func (crawler *Crawler) initializeRedis() error {
@@ -239,7 +284,7 @@ func (crawler *Crawler) initializeRedis() error {
 		crawler.log.Warnf("Redis connection attempt %d/%d failed: %v", attempt, crawler.config.RedisRetryMax, err)
 		if attempt < crawler.config.RedisRetryMax {
 			// Exponential backoff for retries
-			backoff := time.Duration(math.Pow(2, float64(attempt))) * 100 * time.Millisecond
+			backoff := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond // 2^attempt * 100ms
 			time.Sleep(backoff)
 		}
 	}
@@ -261,6 +306,7 @@ func (crawler *Crawler) initializeKafka() error {
 	kafkaConfig.Producer.Timeout = crawler.config.RequestTimeout
 	kafkaConfig.Net.DialTimeout = crawler.config.RequestTimeout
 	kafkaConfig.Metadata.RefreshFrequency = 10 * time.Minute
+	kafkaConfig.Producer.MaxMessageBytes = int(crawler.config.MaxContentSize)
 
 	// Create a new Kafka producer
 	brokers := strings.Split(crawler.config.KafkaBrokers, ",")
@@ -275,12 +321,46 @@ func (crawler *Crawler) initializeKafka() error {
 		crawler.log.Warnf("Kafka producer initialization attempt %d/%d failed: %v", attempt, crawler.config.KafkaRetryMax, err)
 		if attempt < crawler.config.KafkaRetryMax {
 			// Exponential backoff for retries
-			backoff := time.Duration(math.Pow(2, float64(attempt))) * 100 * time.Millisecond
+			backoff := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond // 2^attempt * 100ms
 			time.Sleep(backoff)
 		}
 	}
 
 	return fmt.Errorf("failed to create kafka producer after %d attempts. please ensure kafka is running on %s", crawler.config.KafkaRetryMax, strings.Join(brokers, ","))
+}
+
+// NewURLValidator creates a new URL validator with default settings
+func NewURLValidator(whitelist, blacklist []string, log *logrus.Logger) *URLValidator {
+	return &URLValidator{
+		whitelist:       whitelist,
+		blacklist:       blacklist,
+		log:             log,
+		dnsCacheTimeout: 5 * time.Minute, // Cache DNS results for 5 minutes
+		allowPrivateIPs: false,
+		allowLoopback:   false,
+		skipDNSCheck:    false,
+		maxURLLength:    2048, // Reasonable URL length limit
+	}
+}
+
+// SetDNSCacheTimeout sets the DNS cache timeout duration
+func (urlValidator *URLValidator) SetDNSCacheTimeout(timeout time.Duration) {
+	urlValidator.dnsCacheTimeout = timeout
+}
+
+// SetAllowPrivateIPs configures whether private IPs are allowed
+func (urlValidator *URLValidator) SetAllowPrivateIPs(allow bool) {
+	urlValidator.allowPrivateIPs = allow
+}
+
+// SetAllowLoopback configures whether loopback are allowed
+func (urlValidator *URLValidator) SetAllowLoopback(allow bool) {
+	urlValidator.allowPrivateIPs = allow
+}
+
+// SetSkipDNSCheck configures whether to skip DNS validation
+func (urlValidator *URLValidator) SetSkipDNSCheck(skip bool) {
+	urlValidator.skipDNSCheck = skip
 }
 
 // NewCrawler creates a new crawler instance
@@ -338,6 +418,15 @@ func NewCrawler() (*Crawler, error) {
 	}
 	crawler.log.Info("Kafka initialized successfully")
 
+	// Initialize URL Validator
+	crawler.urlValidator = NewURLValidator(crawler.whitelist, crawler.blacklist, crawler.log)
+
+	// Configure URL Validator
+	crawler.urlValidator.SetDNSCacheTimeout(10 * time.Minute)
+	crawler.urlValidator.SetSkipDNSCheck(false) // Set to false for high-performance crawling. Not Safe
+	crawler.urlValidator.SetAllowPrivateIPs(false)
+	crawler.urlValidator.SetAllowLoopback(false)
+
 	return crawler, nil
 }
 
@@ -345,16 +434,17 @@ func NewCrawler() (*Crawler, error) {
 // Crawler URL Validation and Redis Interaction
 // ------------------------------------------------------------------
 
-// isValidURL checks if a URL is valid and not blocked by blacklist or whitelist rules.
-func (crawler *Crawler) isValidURL(rawURL string) bool {
-	// Check if the URL is empty
-	if rawURL == "" {
+// IsValidURL checks if a URL is valid and not blocked by blacklist or whitelist rules
+func (urlValidator *URLValidator) IsValidURL(rawURL string) bool {
+	// Quick checks first (cheapest operations)
+	if rawURL == "" || len(rawURL) > urlValidator.maxURLLength {
 		return false
 	}
 
 	// Parse the URL to ensure it is well-formed
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
+		urlValidator.log.WithFields(logrus.Fields{"url": rawURL, "error": err}).Debug("Invalid URL format")
 		return false
 	}
 
@@ -369,51 +459,164 @@ func (crawler *Crawler) isValidURL(rawURL string) bool {
 	// Normalize the host to lowercase for consistent checks
 	host := strings.ToLower(parsedURL.Hostname())
 
-	// Resolve DNS for domain names
-	ips, err := net.LookupIP(host)
-	if err == nil {
-		for _, ip := range ips {
-			// Check if IP is a loopback or private address
-			// This prevents crawling internal networks or localhost.
-			if ip.IsLoopback() || ip.IsPrivate() {
-				crawler.log.WithFields(logrus.Fields{"url": rawURL, "ip": ip.String()}).Debug("Skipping URL with loopback or private IP")
-				return false
-			}
-		}
-	} else {
-		// Log DNS resolution errors but don't necessarily block if it's not crucial
-		crawler.log.WithFields(logrus.Fields{"url": rawURL, "error": err}).Debug("Failed to resolve IP for host")
+	// Check domain-based filtering first (before expensive DNS lookup)
+	if !urlValidator.isDomainAllowed(host) {
+		return false
 	}
 
-	// Check blacklist domains
-	for _, blocked := range crawler.blacklist {
-		blocked = strings.ToLower(blocked)
-		// Check if the host ends with the blocked domain or is exactly the blocked domain
-		if strings.HasSuffix(host, "."+blocked) || host == blocked {
-			crawler.log.WithFields(logrus.Fields{"url": rawURL, "blocked_by": blocked}).Debug("Skipping URL due to blacklist")
-			return false
-		}
-	}
-
-	// Whitelist domains if set
-	if len(crawler.whitelist) > 0 {
-		allowed := false
-		for _, allowedDomain := range crawler.whitelist {
-			allowedDomain = strings.ToLower(allowedDomain)
-			// Check if the host ends with the allowed domain or is exactly the allowed domain
-			if strings.HasSuffix(host, "."+allowedDomain) || host == allowedDomain {
-				allowed = true
-				break
-			}
-		}
-		// If no allowed domain matched, skip this URL
-		if !allowed {
-			crawler.log.WithFields(logrus.Fields{"url": rawURL}).Debug("Skipping URL not in whitelist")
-			return false
-		}
+	// DNS validation (most expensive operation, do last)
+	if !urlValidator.skipDNSCheck && !urlValidator.isIPValid(host) {
+		return false
 	}
 
 	return true
+}
+
+// isDomainAllowed checks whitelist and blacklist rules with caching
+func (urlValidator *URLValidator) isDomainAllowed(host string) bool {
+	// Check cache first
+	if cached, exists := urlValidator.domainCache.Load(host); exists {
+		if valid, ok := cached.(bool); ok {
+			return valid
+		}
+	}
+
+	allowed := urlValidator.checkDomainRules(host)
+
+	// Cache the result
+	urlValidator.domainCache.Store(host, allowed)
+
+	return allowed
+}
+
+// checkDomainRules performs the actual domain filtering logic
+func (urlValidator *URLValidator) checkDomainRules(host string) bool {
+	// Check blacklist first (fail fast)
+	for _, blocked := range urlValidator.blacklist {
+		blocked = strings.ToLower(blocked)
+		if urlValidator.matchesDomain(host, blocked) {
+			urlValidator.log.WithFields(logrus.Fields{"host": host, "blocked_by": blocked}).Debug("Host blocked by blacklist")
+			return false
+		}
+	}
+
+	// Check whitelist if configured
+	if len(urlValidator.whitelist) > 0 {
+		for _, allowedDomain := range urlValidator.whitelist {
+			allowedDomain = strings.ToLower(allowedDomain)
+			if urlValidator.matchesDomain(host, allowedDomain) {
+				return true
+			}
+		}
+		// If whitelist is configured but no match found, deny
+		urlValidator.log.WithFields(logrus.Fields{"host": host}).Debug("Host not in whitelist")
+		return false
+	}
+
+	return true
+}
+
+// matchesDomain checks if host matches domain pattern
+func (urlValidator *URLValidator) matchesDomain(host, domain string) bool {
+	// Exact match
+	if host == domain {
+		return true
+	}
+
+	// Subdomain match
+	if strings.HasSuffix(host, "."+domain) {
+		return true
+	}
+
+	return false
+}
+
+// isIPValid checks if the host resolves to valid IPs with caching
+func (urlValidator *URLValidator) isIPValid(host string) bool {
+	// Check if it's already an IP address
+	if ip := net.ParseIP(host); ip != nil {
+		return urlValidator.isIPAllowed(ip)
+	}
+
+	// Check DNS cache first
+	if cached, exists := urlValidator.dnsCache.Load(host); exists {
+		if result, ok := cached.(DNSResult); ok {
+			// Check if cache is still valid
+			if time.Since(result.Timestamp) < urlValidator.dnsCacheTimeout {
+				if !result.Valid {
+					return false
+				}
+				// Check cached IPs
+				return urlValidator.areIPsAllowed(result.IPs)
+			}
+		}
+	}
+
+	// Perform DNS lookup
+	ips, err := net.LookupIP(host)
+	dnsResult := DNSResult{
+		IPs:       ips,
+		Timestamp: time.Now(),
+		Valid:     err == nil,
+	}
+
+	// Cache the result
+	urlValidator.dnsCache.Store(host, dnsResult)
+
+	if err != nil {
+		urlValidator.log.WithFields(logrus.Fields{"host": host, "error": err}).Debug("DNS lookup failed")
+		return false
+	}
+
+	return urlValidator.areIPsAllowed(ips)
+}
+
+// areIPsAllowed checks if any of the IPs are allowed
+func (urlValidator *URLValidator) areIPsAllowed(ips []net.IP) bool {
+	for _, ip := range ips {
+		if urlValidator.isIPAllowed(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// isIPAllowed checks if a single IP is allowed based on configuration
+func (urlValidator *URLValidator) isIPAllowed(ip net.IP) bool {
+	if !urlValidator.allowLoopback && ip.IsLoopback() {
+		urlValidator.log.WithFields(logrus.Fields{"ip": ip.String()}).Debug("Blocked loopback IP")
+		return false
+	}
+
+	if !urlValidator.allowPrivateIPs && ip.IsPrivate() {
+		urlValidator.log.WithFields(logrus.Fields{"ip": ip.String()}).Debug("Blocked private IP")
+		return false
+	}
+
+	return true
+}
+
+// ClearCache clears all cached results
+func (urlValidator *URLValidator) ClearCache() {
+	urlValidator.dnsCache = sync.Map{}
+	urlValidator.domainCache = sync.Map{}
+}
+
+// UpdateWhitelist updates the whitelist and clears domain cache
+func (urlValidator *URLValidator) UpdateWhitelist(whitelist []string) {
+	urlValidator.whitelist = whitelist
+	urlValidator.domainCache = sync.Map{} // Clear cache since rules changed
+}
+
+// UpdateBlacklist updates the blacklist and clears domain cache
+func (urlValidator *URLValidator) UpdateBlacklist(blacklist []string) {
+	urlValidator.blacklist = blacklist
+	urlValidator.domainCache = sync.Map{} // Clear cache since rules changed
+}
+
+// isValidURL checks if a URL is valid and not blocked by blacklist or whitelist rules
+func (crawler *Crawler) isValidURL(rawURL string) bool {
+	return crawler.urlValidator.IsValidURL(rawURL)
 }
 
 // normalizeURL removes fragments and query parameters for deduplication purposes,
@@ -476,7 +679,6 @@ func (crawler *Crawler) checkRedisSet(setKey, url string) (bool, error) {
 // cacheAndLogFound caches the URL locally and logs the discovery
 func (crawler *Crawler) cacheAndLogFound(url, setType string) {
 	crawler.visited.Store(url, struct{}{})
-	crawler.metrics.IncrementRedisSuccessful()
 	crawler.log.WithFields(logrus.Fields{
 		"url":      url,
 		"set_type": setType,
@@ -495,7 +697,7 @@ func (crawler *Crawler) isURLVisited(url string) (bool, error) {
 	// Check both Redis sets with retry logic
 	visited, err := crawler.checkRedisSet("crawler:visited_urls", url)
 	if err != nil {
-		return false, fmt.Errorf("failed to check visited URLs in redis: %w", err)
+		return false, fmt.Errorf("failed to check visited urls in redis: %w", err)
 	}
 	if visited {
 		crawler.cacheAndLogFound(url, "visited")
@@ -504,7 +706,7 @@ func (crawler *Crawler) isURLVisited(url string) (bool, error) {
 
 	pending, err := crawler.checkRedisSet("crawler:pending_urls", url)
 	if err != nil {
-		return false, fmt.Errorf("failed to check pending URLs in redis: %w", err)
+		return false, fmt.Errorf("failed to check pending urls in redis: %w", err)
 	}
 	if pending {
 		crawler.cacheAndLogFound(url, "pending")
@@ -520,144 +722,175 @@ func (crawler *Crawler) isURLVisited(url string) (bool, error) {
 // ------------------------------------------------------------------
 
 // feedCollyFromRedisQueue feeds URLs from the Redis queue to the Colly collector.
-func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
-	defer c.wg.Done() // Decrement WaitGroup counter when this goroutine exits
-	c.log.Info("Starting goroutine to feed URLs from Redis queue to Colly")
+func (crawler *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
+	defer crawler.wg.Done() // Decrement WaitGroup counter when this goroutine exits
+	crawler.log.Info("Starting goroutine to feed URLs from Redis queue to Colly")
 
-	ticker := time.NewTicker(200 * time.Millisecond) // Poll Redis every 200ms
+	// Ticker to periodically check the Redis queue
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
-	emptyQueueChecks := 0    // Counter for consecutive times the Redis queue was found empty
-	const maxEmptyChecks = 5 // How many consecutive empty checks before considering the queue truly empty
+	// Counter to track consecutive empty queue checks
+	emptyQueueChecks := 0
+	const maxEmptyChecks = 5
 
 	for {
 		select {
-		case <-c.ctx.Done(): // Primary shutdown signal: context cancellation
-			c.log.Info("Stopping Redis queue feeder goroutine due to context cancellation.")
-			return // Exit goroutine immediately
+		case <-crawler.ctx.Done(): // Primary shutdown signal: context cancellation
+			crawler.log.Info("Stopping Redis queue feeder goroutine due to context cancellation.")
+			return
 		case <-ticker.C:
-			// Check if max pages limit is reached. If so, we're approaching termination.
-			if atomic.LoadInt64(&c.metrics.PagesProcessed) >= c.config.MaxPages {
-				c.log.Debug("Max pages limit reached. Feeder will stop if queue is empty.")
-				// We don't return immediately, allow draining existing items if any.
+			// Check if max pages limit is reached. If so, terminate.
+			if atomic.LoadInt64(&crawler.metrics.PagesProcessed) >= crawler.config.MaxPages {
+				crawler.log.Debug("Max pages limit reached. Feeder will stop.")
+				// Return immediately so we can continue our progress when we restart the crawler
+				return
 			}
 
 			// Attempt to pull a URL from the 'pending' set
-			url, err := c.redisClient.SPop(c.ctx, "crawler:pending_urls").Result()
+			url, err := crawler.redisClient.SPop(crawler.ctx, "crawler:pending_urls").Result()
 			if err == redis.Nil {
 				// Redis queue is empty
 				emptyQueueChecks++
-				c.log.WithFields(logrus.Fields{"empty_checks": emptyQueueChecks}).Trace("Redis pending queue empty.")
+				crawler.log.WithFields(logrus.Fields{"empty_checks": emptyQueueChecks}).Trace("Redis pending queue empty.")
 
 				// Check for termination conditions if queue is consistently empty
 				if emptyQueueChecks >= maxEmptyChecks {
 					// If queue is consistently empty AND (max pages reached OR context is cancelled)
-					if atomic.LoadInt64(&c.metrics.PagesProcessed) >= c.config.MaxPages || c.ctx.Err() != nil {
-						c.log.Info("Redis pending queue consistently empty and termination condition met. Stopping feeder.")
-						return // Exit goroutine
+					if atomic.LoadInt64(&crawler.metrics.PagesProcessed) >= crawler.config.MaxPages || crawler.ctx.Err() != nil || crawler.GetInFlightPages() == 0 { // ctx.Done() always returns a channel so !=nill is always true
+						crawler.log.Info("Redis pending queue consistently empty and termination condition met. Stopping feeder.")
+						return
 					}
+					// If queue is empty but we haven't reached max pages or in-flight pages or context is not cancelled, just continue checking
+					crawler.log.Debug("Redis pending queue empty, but max pages not reached. Continuing to check...")
 				}
-				continue // Queue empty, wait for next tick
+				continue
 			} else if err != nil {
 				// An actual error occurred with Redis (not just empty queue)
-				c.log.WithFields(logrus.Fields{"error": err}).Error("Failed to pop URL from Redis pending queue, retrying...")
-				// Consider adding more robust retry logic for transient Redis errors if needed.
-				// For now, it simply continues to the next ticker cycle.
+				crawler.log.WithFields(logrus.Fields{"error": err}).Error("Failed to pop URL from Redis pending queue, retrying...")
+				crawler.metrics.IncrementRedisFailed()
 				continue
 			}
 
 			// If a URL was successfully popped, reset the empty queue counter
 			emptyQueueChecks = 0
 
-			c.log.WithFields(logrus.Fields{"url": url}).Debug("Pulled URL from Redis pending queue for visit")
+			crawler.log.WithFields(logrus.Fields{"url": url}).Debug("Pulled URL from Redis pending queue for visit")
 
 			// Feed the URL to Colly. Colly's internal Limit rules will manage concurrency.
 			if err := collector.Visit(url); err != nil {
-				// This error means Colly failed to even initiate the visit (e.g., malformed URL given to Colly).
+				// This error means Colly failed to even initiate the visit so collector.onError won't be triggered (e.g., malformed URL given to Colly).
 				// It's crucial to mark this URL as visited (failed) in Redis,
 				// otherwise it might be re-added to pending if discovered again, leading to an infinite loop.
-				c.log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Failed to initiate Colly visit for URL from Redis queue (e.g., invalid format). Marking as failed visited.")
-				_, redisErr := c.redisClient.SAdd(c.ctx, "crawler:visited_urls", url).Result()
+				crawler.log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Failed to initiate Colly visit for URL from Redis queue (e.g., invalid format). Marking as failed visited.")
+				_, redisErr := crawler.redisClient.SAdd(crawler.ctx, "crawler:visited_urls", url).Result()
 				if redisErr != nil {
-					c.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after Colly visit initiation failure")
+					crawler.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after Colly visit initiation failure")
+					crawler.metrics.IncrementRedisFailed()
 				}
+				crawler.metrics.IncrementPagesFailed()
 			}
 		}
 	}
 }
 
 // sendToKafka sends the scraped HTML content to Kafka.
-func (c *Crawler) sendToKafka(url, html string) error {
-	if int64(len(html)) > c.config.MaxContentSize {
+func (crawler *Crawler) sendToKafka(url, html string) error {
+	if int(len(html)) > crawler.config.MaxContentSize {
 		return &CrawlError{
 			URL:       url,
 			Operation: "kafka_send",
-			Err:       fmt.Errorf("content size %d exceeds limit %d", len(html), c.config.MaxContentSize),
+			Err:       fmt.Errorf("content size %d exceeds limit %d", len(html), crawler.config.MaxContentSize),
 			Retry:     false, // No point in retrying for size limit
 		}
 	}
 
+	// Create the message
 	msg := &sarama.ProducerMessage{
-		Topic:     c.config.KafkaTopic,
+		Topic:     crawler.config.KafkaTopic,
 		Key:       sarama.StringEncoder(url),
 		Value:     sarama.StringEncoder(html),
 		Timestamp: time.Now(),
 	}
 
-	for attempt := 0; attempt < c.config.KafkaRetryMax; attempt++ {
-		_, _, err := c.producer.SendMessage(msg)
+	var lastErr error
+	for attempt := 1; attempt <= crawler.config.KafkaRetryMax; attempt++ {
+		_, _, err := crawler.producer.SendMessage(msg)
 		if err == nil {
-			c.metrics.IncrementKafkaSuccessful()
+			crawler.metrics.IncrementKafkaSuccessful()
 			return nil
 		}
 
-		c.log.Warnf("Kafka SendMessage attempt %d failed for URL %s: %v", attempt+1, url, err)
-		if attempt < c.config.KafkaRetryMax-1 {
+		lastErr = err
+		crawler.log.Warnf("Kafka SendMessage attempt %d/%d failed for URL %s: %v",
+			attempt, crawler.config.KafkaRetryMax, url, err)
+
+		// Don't sleep after the last attempt
+		if attempt < crawler.config.KafkaRetryMax {
 			// Exponential backoff for retries
-			backoff := time.Duration(math.Pow(2, float64(attempt))) * 100 * time.Millisecond
+			backoff := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond // 2^attempt * 100ms
 			time.Sleep(backoff)
 		}
 	}
 
-	c.metrics.IncrementKafkaFailed()
+	crawler.metrics.IncrementKafkaFailed()
 	return &CrawlError{
 		URL:       url,
 		Operation: "kafka_send",
-		Err:       fmt.Errorf("failed to send to Kafka after %d attempts", c.config.KafkaRetryMax),
-		Retry:     true, // Mark as retriable for external handling if needed
+		Err:       fmt.Errorf("failed to send to kafka after %d attempts: %w", crawler.config.KafkaRetryMax, lastErr),
+		Retry:     true, // Mark as retriable
 	}
 }
 
 // setupCollyCollector configures the colly collector with callbacks for crawling logic.
-func (c *Crawler) setupCollyCollector() *colly.Collector {
+func (crawler *Crawler) setupCollyCollector() *colly.Collector {
+	// Setup Colly collector options
 	options := []colly.CollectorOption{
-		colly.MaxDepth(c.config.CrawlDepth),
+		colly.MaxDepth(crawler.config.CrawlDepth),
 		colly.Async(true), // Enable asynchronous requests, managing concurrency internally
-		colly.UserAgent(c.config.UserAgent),
+		colly.UserAgent(crawler.config.UserAgent),
+		colly.ParseHTTPErrorResponse(), // Parse 4xx/5xx responses for better error handling
+		colly.DetectCharset(),          // Auto-detect and convert character encoding
 	}
 
-	if c.config.EnableDebug {
+	if len(crawler.blacklist) > 0 {
+		options = append(options, colly.DisallowedDomains(crawler.blacklist...))
+	}
+	if len(crawler.whitelist) > 0 {
+		options = append(options, colly.AllowedDomains(crawler.whitelist...))
+	}
+	if crawler.config.EnableDebug {
 		options = append(options, colly.Debugger(&debug.LogDebugger{}))
 	}
 
+	// Create the collector
 	collector := colly.NewCollector(options...)
 
 	// Apply rate limits for all domains
-	collector.Limit(&colly.LimitRule{
-		DomainGlob:  "*", // Apply to all domains
-		Parallelism: c.config.MaxConcurrency,
-		Delay:       c.config.RequestDelay,
-		RandomDelay: c.config.RequestDelay / 2, // Add some random delay
+	err := collector.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		Parallelism: crawler.config.MaxConcurrency,
+		Delay:       crawler.config.RequestDelay,
+		RandomDelay: crawler.config.RequestDelay / 2,
 	})
+	if err != nil {
+		crawler.log.WithFields(logrus.Fields{"error": err}).Error("Failed to set rate limit")
+		// Continue
+	}
 
-	collector.SetRequestTimeout(c.config.RequestTimeout)
+	collector.SetRequestTimeout(crawler.config.RequestTimeout)
+
+	var skipExts = map[string]struct{}{
+		".pdf": {}, ".jpg": {}, ".jpeg": {}, ".png": {}, ".gif": {}, ".css": {}, ".js": {}, ".ico": {},
+		".svg": {}, ".woff": {}, ".ttf": {}, ".mp4": {}, ".mp3": {}, ".zip": {}, ".exe": {},
+	}
 
 	// Request filtering and header setting
 	collector.OnRequest(func(r *colly.Request) {
 		// Check for context cancellation before proceeding with the request
 		select {
-		case <-c.ctx.Done():
-			c.log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Request aborted due to shutdown")
+		case <-crawler.ctx.Done():
+			crawler.log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Request aborted due to shutdown")
 			r.Abort()
 			return
 		default:
@@ -666,91 +899,114 @@ func (c *Crawler) setupCollyCollector() *colly.Collector {
 
 		urlStr := r.URL.String()
 		// Skip common file extensions
-		skipExts := []string{".pdf", ".jpg", ".jpeg", ".png", ".gif", ".css", ".js", ".ico", ".svg", ".woff", ".ttf", ".mp4", ".mp3", ".zip", ".exe"}
-		for _, ext := range skipExts {
-			if strings.HasSuffix(strings.ToLower(urlStr), ext) {
-				c.log.WithFields(logrus.Fields{"url": urlStr, "ext": ext}).Debug("Skipping URL due to file extension")
-				r.Abort()
-				return
-			}
+		ext := strings.ToLower(path.Ext(r.URL.Path))
+		if _, skip := skipExts[ext]; skip {
+			crawler.log.WithFields(logrus.Fields{"url": urlStr, "ext": ext}).Debug("Skipping URL due to file extension")
+			r.Abort()
+			return
 		}
 
-		// Set standard request headers
-		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		// Add common headers to appear more like a real browser
+		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 		r.Headers.Set("Accept-Language", "en-US,en;q=0.5")
 		r.Headers.Set("Accept-Encoding", "gzip, deflate")
+		r.Headers.Set("DNT", "1")
 		r.Headers.Set("Connection", "keep-alive")
 		r.Headers.Set("Upgrade-Insecure-Requests", "1")
 
-		c.log.WithFields(logrus.Fields{"url": urlStr}).Debug("Visiting URL")
+		crawler.IncrementInFlightPages()
+		crawler.log.WithFields(logrus.Fields{"url": urlStr}).Debug("Visiting URL")
 	})
 
 	// Handle HTML pages
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
 		// Check for context cancellation
 		select {
-		case <-c.ctx.Done():
-			c.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("HTML processing skipped due to shutdown")
+		case <-crawler.ctx.Done():
+			crawler.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("HTML processing skipped due to shutdown")
 			return
 		default:
 			// Continue
 		}
 
 		// Stop processing if max pages limit is reached
-		if atomic.LoadInt64(&c.metrics.PagesProcessed) >= c.config.MaxPages {
-			c.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Max pages limit reached, stopping HTML processing")
+		if atomic.LoadInt64(&crawler.metrics.PagesProcessed) >= crawler.config.MaxPages {
+			crawler.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Max pages limit reached, stopping HTML processing")
 			return
 		}
 
-		c.metrics.IncrementPagesProcessed()
+		crawler.metrics.IncrementPagesProcessed()
+		defer crawler.DecrementInFlightPages()
 		url := e.Request.URL.String()
 
 		html, err := e.DOM.Html()
 		if err != nil {
-			c.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to extract HTML")
-			c.metrics.IncrementPagesFailed()
+			crawler.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to extract HTML")
+			crawler.metrics.IncrementPagesFailed()
 			// IMPORTANT: Mark as visited even if HTML extraction fails
-			_, redisErr := c.redisClient.SAdd(c.ctx, "crawler:visited_urls", url).Result()
+			_, redisErr := crawler.redisClient.SAdd(crawler.ctx, "crawler:visited_urls", url).Result()
 			if redisErr != nil {
-				c.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after HTML extraction failure")
+				crawler.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after HTML extraction failure")
+				crawler.metrics.IncrementRedisFailed()
 			}
 			return
 		}
 
-		if err := c.sendToKafka(url, html); err != nil {
-			c.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to send to Kafka")
-			c.metrics.IncrementPagesFailed()
+		if err := crawler.sendToKafka(url, html); err != nil {
+			var crawlErr *CrawlError
+			if errors.As(err, &crawlErr) && crawlErr.Retry {
+				if _, ok := crawler.requeued.Load(url); ok {
+					crawler.log.WithFields(logrus.Fields{"url": url}).Trace("URL already requeued once. Will be marked as visited")
+					crawler.requeued.Delete(url)
+				} else {
+					// Re-queue URL instead of marking as visited
+					crawler.log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Retriable error occurred, requeuing URL")
+
+					_, redisErr := crawler.redisClient.SAdd(crawler.ctx, "crawler:pending_urls", url).Result()
+					if redisErr != nil {
+						crawler.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to requeue URL after Kafka retryable error")
+						crawler.metrics.IncrementRedisFailed()
+					}
+					crawler.requeued.Store(url, struct{}{})
+					return
+				}
+			}
+
+			crawler.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to send to Kafka")
+			crawler.metrics.IncrementPagesFailed()
 			// IMPORTANT: Mark as visited even if sending to Kafka fails
-			_, redisErr := c.redisClient.SAdd(c.ctx, "crawler:visited_urls", url).Result()
+			_, redisErr := crawler.redisClient.SAdd(crawler.ctx, "crawler:visited_urls", url).Result()
 			if redisErr != nil {
-				c.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after Kafka failure")
+				crawler.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after Kafka failure")
+				crawler.metrics.IncrementRedisFailed()
 			}
 			return
 		}
 
-		c.metrics.IncrementPagesSuccessful()
-		c.log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully")
+		crawler.metrics.IncrementPagesSuccessful()
+		crawler.log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully")
 
 		// IMPORTANT: Mark as visited in Redis after successful processing
-		_, err = c.redisClient.SAdd(c.ctx, "crawler:visited_urls", url).Result()
+		_, err = crawler.redisClient.SAdd(crawler.ctx, "crawler:visited_urls", url).Result()
 		if err != nil {
-			c.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to add URL to visited_urls Redis set")
+			crawler.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to add URL to visited_urls Redis set")
+			crawler.metrics.IncrementRedisFailed()
 		}
 	})
 
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		// Check for context cancellation
 		select {
-		case <-c.ctx.Done():
-			c.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Link extraction skipped due to shutdown")
+		case <-crawler.ctx.Done():
+			crawler.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Link extraction skipped due to shutdown")
 			return
 		default:
 			// Continue
 		}
 
 		// Stop processing if max pages limit is reached
-		if atomic.LoadInt64(&c.metrics.PagesProcessed) >= c.config.MaxPages {
-			c.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Max pages limit reached, stopping link extraction")
+		if atomic.LoadInt64(&crawler.metrics.PagesProcessed) >= crawler.config.MaxPages {
+			crawler.log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Max pages limit reached, stopping link extraction")
 			return
 		}
 
@@ -768,31 +1024,31 @@ func (c *Crawler) setupCollyCollector() *colly.Collector {
 		}
 
 		absoluteURL := e.Request.AbsoluteURL(link)
-		if !c.isValidURL(absoluteURL) {
+		if !crawler.isValidURL(absoluteURL) {
 			return
 		}
 
 		normalized, err := normalizeURL(absoluteURL)
 		if err != nil {
-			c.log.WithFields(logrus.Fields{"url": absoluteURL, "error": err}).Debug("Failed to normalize URL")
+			crawler.log.WithFields(logrus.Fields{"url": absoluteURL, "error": err}).Debug("Failed to normalize URL")
 			return
 		}
 
 		// Use the enhanced isURLVisited to check both 'visited' and 'pending' sets
-		visitedOrPending, err := c.isURLVisited(normalized)
+		visitedOrPending, err := crawler.isURLVisited(normalized)
 		if err != nil {
-			c.log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Failed to check URL visited/pending status")
-			c.metrics.IncrementRedisFailed() // Increment failed metrics if Redis check fails
+			crawler.log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Failed to check URL visited/pending status")
+			crawler.metrics.IncrementRedisFailed() // Increment failed metrics if Redis check fails
 			return
 		}
 
 		if !visitedOrPending {
-			c.log.WithFields(logrus.Fields{"url": normalized}).Debug("Adding new URL to Redis pending queue")
+			crawler.log.WithFields(logrus.Fields{"url": normalized}).Debug("Adding new URL to Redis pending queue")
 			// Add to Redis 'pending_urls' set instead of calling Colly's Visit directly
-			_, err := c.redisClient.SAdd(c.ctx, "crawler:pending_urls", normalized).Result()
+			_, err := crawler.redisClient.SAdd(crawler.ctx, "crawler:pending_urls", normalized).Result()
 			if err != nil {
-				c.log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Failed to add URL to Redis pending queue")
-				c.metrics.IncrementRedisFailed()
+				crawler.log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Failed to add URL to Redis pending queue")
+				crawler.metrics.IncrementRedisFailed()
 			}
 		}
 	})
@@ -805,33 +1061,35 @@ func (c *Crawler) setupCollyCollector() *colly.Collector {
 			strings.Contains(err.Error(), "connection refused") ||
 			strings.Contains(err.Error(), "no such host")
 
-		if !isNetworkError || c.config.EnableDebug {
-			c.log.WithFields(logrus.Fields{
+		if !isNetworkError || crawler.config.EnableDebug {
+			crawler.log.WithFields(logrus.Fields{
 				"url":         r.Request.URL.String(),
 				"status_code": r.StatusCode,
 				"error":       err,
 			}).Warn("Request failed")
 		} else {
-			c.log.WithFields(logrus.Fields{
+			crawler.log.WithFields(logrus.Fields{
 				"url":         r.Request.URL.String(),
 				"status_code": r.StatusCode,
 				"error":       err,
 			}).Debug("Suppressed network error") // Log as debug if suppressed
 		}
-		c.metrics.IncrementPagesFailed()
+		crawler.metrics.IncrementPagesFailed()
 
 		// IMPORTANT: Mark as visited in Redis, even if the request failed, to prevent re-attempts for this URL.
 		url := r.Request.URL.String()
-		_, redisErr := c.redisClient.SAdd(c.ctx, "crawler:visited_urls", url).Result()
+		_, redisErr := crawler.redisClient.SAdd(crawler.ctx, "crawler:visited_urls", url).Result()
 		if redisErr != nil {
-			c.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set on error")
+			crawler.log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set on error")
+			crawler.metrics.IncrementRedisFailed()
 		}
+		crawler.DecrementInFlightPages()
 	})
 
 	// Debug logging on successful response
-	if c.config.EnableDebug {
+	if crawler.config.EnableDebug {
 		collector.OnResponse(func(r *colly.Response) {
-			c.log.WithFields(logrus.Fields{
+			crawler.log.WithFields(logrus.Fields{
 				"url":          r.Request.URL.String(),
 				"status_code":  r.StatusCode,
 				"content_type": r.Headers.Get("Content-Type"),
@@ -844,7 +1102,7 @@ func (c *Crawler) setupCollyCollector() *colly.Collector {
 }
 
 // startHealthCheck starts HTTP health check and metrics server.
-func (c *Crawler) startHealthCheck() {
+func (crawler *Crawler) startHealthCheck() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -856,14 +1114,14 @@ func (c *Crawler) startHealthCheck() {
 		ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second) // Use request context, short timeout
 		defer cancel()
 
-		if err := c.redisClient.Ping(ctx).Err(); err != nil {
+		if err := crawler.redisClient.Ping(ctx).Err(); err != nil {
 			redisStatus = fmt.Sprintf("error: %v", err)
 		}
 
 		// Kafka health check:
 		// A non-invasive check is just to ensure the producer is initialized (not nil).
 		// Sarama's SyncProducer handles internal connection management and retries.
-		if c.producer == nil {
+		if crawler.producer == nil {
 			kafkaStatus = "error: Kafka producer uninitialized"
 		}
 		// For more advanced Kafka health, you might consider:
@@ -882,7 +1140,7 @@ func (c *Crawler) startHealthCheck() {
 
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		stats := c.metrics.GetStats()
+		stats := crawler.metrics.GetStats()
 		fmt.Fprintf(w, `{
             "pages_processed": %d,
             "pages_successful": %d,
@@ -905,52 +1163,52 @@ func (c *Crawler) startHealthCheck() {
 	})
 
 	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", c.config.HealthCheckPort),
+		Addr:         fmt.Sprintf(":%d", crawler.config.HealthCheckPort),
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 
-	c.wg.Add(1)
+	crawler.wg.Add(1)
 	go func() {
-		defer c.wg.Done()
-		c.log.Infof("Health check server starting on port %d", c.config.HealthCheckPort)
+		defer crawler.wg.Done()
+		crawler.log.Infof("Health check server starting on port %d", crawler.config.HealthCheckPort)
 		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			c.log.Errorf("Health check server error: %v", err)
+			crawler.log.Errorf("Health check server error: %v", err)
 		}
 	}()
 
 	// Graceful shutdown for health check server
 	go func() {
-		<-c.shutdown // Wait for the main shutdown signal
+		<-crawler.shutdown // Wait for the main shutdown signal
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {
-			c.log.Errorf("Health check server shutdown error: %v", err)
+			crawler.log.Errorf("Health check server shutdown error: %v", err)
 		} else {
-			c.log.Info("Health check server shut down gracefully")
+			crawler.log.Info("Health check server shut down gracefully")
 		}
 	}()
 }
 
 // logMetricsPeriodically logs metrics every 30 seconds
-func (c *Crawler) logMetricsPeriodically() {
-	ticker := time.NewTicker(30 * time.Second)
-	c.wg.Add(1)
+func (crawler *Crawler) logMetricsPeriodically() {
+	ticker := time.NewTicker(10 * time.Second)
+	crawler.wg.Add(1)
 	go func() {
-		defer c.wg.Done()
+		defer crawler.wg.Done()
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				stats := c.metrics.GetStats()
+				stats := crawler.metrics.GetStats()
 				pagesPerSecond := float64(0)
 				if stats["uptime_seconds"].(float64) > 0 {
 					pagesPerSecond = float64(stats["pages_processed"].(int64)) / stats["uptime_seconds"].(float64)
 				}
 
-				c.log.WithFields(logrus.Fields{
+				crawler.log.WithFields(logrus.Fields{
 					"pages_processed":  stats["pages_processed"],
 					"pages_successful": stats["pages_successful"],
 					"pages_failed":     stats["pages_failed"],
@@ -961,64 +1219,91 @@ func (c *Crawler) logMetricsPeriodically() {
 					"uptime_seconds":   fmt.Sprintf("%.2f", stats["uptime_seconds"].(float64)),
 					"pages_per_second": fmt.Sprintf("%.2f", pagesPerSecond),
 				}).Info("Crawler metrics")
-			case <-c.shutdown:
-				c.log.Info("Stopping periodic metrics logging")
+			case <-crawler.shutdown:
+				crawler.log.Info("Stopping periodic metrics logging")
 				return
 			}
 		}
 	}()
 }
 
-func (c *Crawler) Start() error {
-	c.log.Info("Starting web crawler with persistent Redis queue. Waiting indefinitely until completion.")
-	c.log.WithFields(logrus.Fields{
-		"kafka_brokers": c.config.KafkaBrokers,
-		"start_urls":    c.config.StartURLs,
-		"max_pages":     c.config.MaxPages,
-		"max_depth":     c.config.CrawlDepth,
-		"concurrency":   c.config.MaxConcurrency,
+func (crawler *Crawler) Start() error {
+	crawler.log.Info("Starting web crawler with persistent Redis queue. Waiting indefinitely until completion.")
+	crawler.log.WithFields(logrus.Fields{
+		"kafka": map[string]any{
+			"kafka_brokers":   crawler.config.KafkaBrokers,
+			"kafka_topic":     crawler.config.KafkaTopic,
+			"kafka_retry_max": crawler.config.KafkaRetryMax,
+		},
+		"redis": map[string]any{
+			"redis_host":      crawler.config.RedisHost,
+			"redis_port":      crawler.config.RedisPort,
+			"redis_password":  crawler.config.RedisPassword,
+			"redis_db":        crawler.config.RedisDB,
+			"redis_timeout":   crawler.config.RedisTimeout,
+			"redis_retry_max": crawler.config.RedisRetryMax,
+		},
+		"crawling_behavior": map[string]any{
+			"start_urls":    crawler.config.StartURLs,
+			"max_pages":     crawler.config.MaxPages,
+			"crawl_depth":   crawler.config.CrawlDepth,
+			"url_whitelist": crawler.config.URLWhitelist,
+			"url_blacklist": crawler.config.URLBlacklist,
+		},
+		"performance_and_limits": map[string]any{
+			"max_concurrency":  crawler.config.MaxConcurrency,
+			"request_timeout":  crawler.config.RequestTimeout,
+			"request_delay":    crawler.config.RequestDelay,
+			"max_content_size": crawler.config.MaxContentSize,
+		},
+		"application_settings": map[string]any{
+			"log_level":         crawler.config.LogLevel,
+			"user_agent":        crawler.config.UserAgent,
+			"enable_debug":      crawler.config.EnableDebug,
+			"health_check_port": crawler.config.HealthCheckPort,
+		},
 	}).Info("Crawler configuration")
 
-	c.startHealthCheck()
-	c.logMetricsPeriodically()
+	crawler.startHealthCheck()
+	crawler.logMetricsPeriodically()
 
-	collector := c.setupCollyCollector()
+	collector := crawler.setupCollyCollector()
 
 	// Seed Redis 'pending_urls' with configured start URLs
-	startURLs := strings.Split(c.config.StartURLs, ",")
-	for _, rawURL := range startURLs {
+	startURLs := strings.SplitSeq(crawler.config.StartURLs, ",")
+	for rawURL := range startURLs {
 		url := strings.TrimSpace(rawURL)
-		if !c.isValidURL(url) {
-			c.log.Warnf("Skipping invalid start URL: %s", url)
+		if !crawler.isValidURL(url) {
+			crawler.log.Warnf("Skipping invalid start URL: %s", url)
 			continue
 		}
 
-		visitedOrPending, err := c.isURLVisited(url)
+		visitedOrPending, err := crawler.isURLVisited(url)
 		if err != nil {
-			c.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to check start URL status in Redis, skipping")
+			crawler.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to check start URL status in Redis, skipping")
 			continue
 		}
 		if visitedOrPending {
-			c.log.WithFields(logrus.Fields{"url": url}).Info("Start URL already visited or pending, skipping initial queueing")
+			crawler.log.WithFields(logrus.Fields{"url": url}).Info("Start URL already visited or pending, skipping initial queueing")
 			continue
 		}
 
 		// Add to Redis 'pending_urls' set
-		_, err = c.redisClient.SAdd(c.ctx, "crawler:pending_urls", url).Result()
+		_, err = crawler.redisClient.SAdd(crawler.ctx, "crawler:pending_urls", url).Result()
 		if err != nil {
-			c.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to add start URL to Redis pending queue")
+			crawler.log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to add start URL to Redis pending queue")
 		} else {
-			c.log.WithFields(logrus.Fields{"url": url}).Info("Added start URL to Redis pending queue")
+			crawler.log.WithFields(logrus.Fields{"url": url}).Info("Added start URL to Redis pending queue")
 		}
 	}
 
 	// --- Core Waiting Logic ---
 
 	// Increment WaitGroup for the feedCollyFromRedisQueue goroutine
-	c.wg.Add(1)
-	go c.feedCollyFromRedisQueue(collector)
+	crawler.wg.Add(1)
+	go crawler.feedCollyFromRedisQueue(collector)
 
-	c.log.Info("Crawler started. Blocking until all crawling activities are complete...")
+	crawler.log.Info("Crawler started. Blocking until all crawling activities are complete...")
 
 	// Use a separate goroutine to orchestrate the waiting for Colly and the feeder.
 	// This allows the main `Start` function to simply block until all work is signaled as done.
@@ -1028,24 +1313,24 @@ func (c *Crawler) Start() error {
 		// This will only complete once `feedCollyFromRedisQueue` stops feeding it URLs
 		// (either due to context cancellation, max pages, or empty Redis queue).
 		collector.Wait()
-		c.log.Info("Colly collector finished processing its internal queue.")
+		crawler.log.Info("Colly collector finished processing its internal queue.")
 
 		// Then, wait for the feedCollyFromRedisQueue goroutine to exit.
 		// It will exit when its internal conditions (context, max pages + empty queue) are met.
-		c.wg.Wait()
-		c.log.Info("Redis queue feeder goroutine has stopped.")
+		crawler.wg.Wait()
+		crawler.log.Info("Redis queue feeder goroutine has stopped.")
 
 		close(doneChan) // Signal that all crawling activities are complete
 	}()
 
 	// Block the main `Start()` goroutine until all crawling activities are done.
 	<-doneChan
-	c.log.Info("All crawling activities (Colly queue and Redis feeder) have completed.")
+	crawler.log.Info("All crawling activities (Colly queue and Redis feeder) have completed.")
 
 	// --- End Core Waiting Logic ---
 
-	stats := c.metrics.GetStats()
-	c.log.WithFields(logrus.Fields{
+	stats := crawler.metrics.GetStats()
+	crawler.log.WithFields(logrus.Fields{
 		"pages_processed":  stats["pages_processed"],
 		"pages_successful": stats["pages_successful"],
 		"pages_failed":     stats["pages_failed"],
@@ -1057,45 +1342,45 @@ func (c *Crawler) Start() error {
 
 // Shutdown gracefully shuts down the crawler by stopping background goroutines
 // and closing connections.
-func (c *Crawler) Shutdown() {
-	c.shutdownOnce.Do(func() {
-		c.log.Info("Initiating crawler shutdown...")
-		close(c.shutdown) // Signal background goroutines to stop
-		c.cancel()        // Signal context cancellation to active operations
+func (crawler *Crawler) Shutdown() {
+	crawler.shutdownOnce.Do(func() {
+		crawler.log.Info("Initiating crawler shutdown...")
+		close(crawler.shutdown) // Signal background goroutines to stop
+		crawler.cancel()        // Signal context cancellation to active operations
 
 		// Wait for all goroutines (health check, metrics logger) to finish.
 		// Colly's Wait() should already be done or will be canceled by ctx.
 		done := make(chan struct{})
 		go func() {
-			c.wg.Wait()
+			crawler.wg.Wait()
 			close(done)
 		}()
 
 		select {
 		case <-done:
-			c.log.Info("All background goroutines finished.")
+			crawler.log.Info("All background goroutines finished.")
 		case <-time.After(10 * time.Second):
-			c.log.Warn("Timeout waiting for background goroutines to finish. Some might still be running.")
+			crawler.log.Warn("Timeout waiting for background goroutines to finish. Some might still be running.")
 		}
 
 		// Close external connections
-		if c.producer != nil {
-			if err := c.producer.Close(); err != nil {
-				c.log.Errorf("Failed to close Kafka producer: %v", err)
+		if crawler.producer != nil {
+			if err := crawler.producer.Close(); err != nil {
+				crawler.log.Errorf("Failed to close Kafka producer: %v", err)
 			} else {
-				c.log.Info("Kafka producer closed.")
+				crawler.log.Info("Kafka producer closed.")
 			}
 		}
 
-		if c.redisClient != nil {
-			if err := c.redisClient.Close(); err != nil {
-				c.log.Errorf("Failed to close Redis client: %v", err)
+		if crawler.redisClient != nil {
+			if err := crawler.redisClient.Close(); err != nil {
+				crawler.log.Errorf("Failed to close Redis client: %v", err)
 			} else {
-				c.log.Info("Redis client closed.")
+				crawler.log.Info("Redis client closed.")
 			}
 		}
 
-		c.log.Info("Crawler shutdown complete.")
+		crawler.log.Info("Crawler shutdown complete.")
 	})
 }
 
