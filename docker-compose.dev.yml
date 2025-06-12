@@ -100,6 +100,7 @@ services:
       HEALTH_CHECK_PORT: 8080
     volumes:
       - ./services/crawler/cmd:/app/cmd
+      - ./services/crawler/internal:/app/internal
       - ./services/crawler/.air.toml:/app/.air.toml
       - ./services/crawler/go.mod:/app/go.mod
       - ./services/crawler/go.sum:/app/go.sum
