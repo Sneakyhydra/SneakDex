@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -11,7 +12,7 @@ func NormalizeURL(rawURL string) (string, error) {
 	// Parse the URL to ensure it is well-formed
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to parse URL %q: %w", rawURL, err)
 	}
 
 	// Remove fragments and query parameters
