@@ -6,61 +6,88 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// isDomainAllowed checks whitelist and blacklist rules with caching
+// isDomainAllowed determines whether a given host is allowed based on blacklist/whitelist rules.
+// It uses a cache for performance and avoids repeated rule evaluations.
 func (urlValidator *URLValidator) isDomainAllowed(host string) bool {
-	// Check cache first
-	if cached, exists := urlValidator.domainCache.Load(host); exists {
+	normalizedHost := normalizeDomain(host)
+
+	// Check cache
+	if cached, exists := urlValidator.domainCache.Load(normalizedHost); exists {
 		if valid, ok := cached.(bool); ok {
 			return valid
 		}
+		// Fallback: invalid cache type, remove it
+		urlValidator.log.WithFields(logrus.Fields{
+			"host":  normalizedHost,
+			"error": "Invalid cache type",
+		}).Warn("Corrupted cache entry detected; ignoring")
+		urlValidator.domainCache.Delete(normalizedHost)
 	}
 
-	allowed := urlValidator.checkDomainRules(host)
+	allowed := urlValidator.checkDomainRules(normalizedHost)
 
-	// Cache the result
-	urlValidator.domainCache.Store(host, allowed)
-
+	// Cache the decision
+	urlValidator.domainCache.Store(normalizedHost, allowed)
 	return allowed
 }
 
-// checkDomainRules performs the actual domain filtering logic
+// checkDomainRules applies blacklist and whitelist filtering to the host.
+// Blacklist blocks override whitelist, and whitelist denies non-listed domains if defined.
 func (urlValidator *URLValidator) checkDomainRules(host string) bool {
-	// Check blacklist first (fail fast)
+	// --- Blacklist Evaluation (Fail-Fast) ---
 	for _, blocked := range urlValidator.blacklist {
-		blocked = strings.ToLower(blocked)
+		blocked = normalizeDomain(blocked)
 		if urlValidator.matchesDomain(host, blocked) {
-			urlValidator.log.WithFields(logrus.Fields{"host": host, "blocked_by": blocked}).Debug("Host blocked by blacklist")
+			urlValidator.log.WithFields(logrus.Fields{
+				"host":        host,
+				"blacklisted": blocked,
+			}).Debug("Host denied by blacklist")
 			return false
 		}
 	}
 
-	// Check whitelist if configured
+	// --- Whitelist Evaluation ---
 	if len(urlValidator.whitelist) > 0 {
-		for _, allowedDomain := range urlValidator.whitelist {
-			allowedDomain = strings.ToLower(allowedDomain)
-			if urlValidator.matchesDomain(host, allowedDomain) {
+		for _, allowed := range urlValidator.whitelist {
+			allowed = normalizeDomain(allowed)
+			if urlValidator.matchesDomain(host, allowed) {
 				return true
 			}
 		}
-		// If whitelist is configured but no match found, deny
-		urlValidator.log.WithFields(logrus.Fields{"host": host}).Debug("Host not in whitelist")
+		// Host not in whitelist
+		urlValidator.log.WithFields(logrus.Fields{
+			"host": host,
+		}).Debug("Host denied; not in whitelist")
 		return false
 	}
 
+	// If no whitelist exists, allow by default
 	return true
 }
 
-// matchesDomain checks if host matches domain pattern
+// matchesDomain checks if the host matches a domain pattern.
+// Supports:
+//   - exact domain match
+//   - subdomain match (e.g., a.example.com -> example.com)
+//   - wildcard domain match (e.g., *.example.com)
 func (urlValidator *URLValidator) matchesDomain(host, domain string) bool {
+	// Handle wildcard match (e.g., *.example.com)
+	if strings.HasPrefix(domain, "*.") {
+		suffix := domain[1:] // Remove '*'
+		return strings.HasSuffix(host, suffix)
+	}
+
 	// Exact match
 	if host == domain {
 		return true
 	}
 
 	// Subdomain match
-	if strings.HasSuffix(host, "."+domain) {
-		return true
-	}
+	return strings.HasSuffix(host, "."+domain)
+}
 
-	return false
+// normalizeDomain lowercases and strips trailing dots from a domain.
+// This ensures consistent comparisons.
+func normalizeDomain(domain string) string {
+	return strings.TrimSuffix(strings.ToLower(domain), ".")
 }

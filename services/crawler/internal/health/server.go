@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	// Third-party
 	"github.com/IBM/sarama"
 	"github.com/redis/go-redis/v9"
 
@@ -16,24 +15,27 @@ import (
 	"github.com/sneakyhydra/sneakdex/crawler/internal/metrics"
 )
 
-var redisClient *redis.Client
-var producer *sarama.SyncProducer
-var stats *metrics.Metrics
+type healthServer struct {
+	httpServer    *http.Server
+	redisClient   *redis.Client
+	kafkaProducer sarama.AsyncProducer
+	stats         *metrics.Metrics
+}
 
-// StartHealthCheck starts HTTP health check and metrics server.
-func StartHealthCheck(wg *sync.WaitGroup, shutdown chan struct{}, newRedisClient *redis.Client, newProducer *sarama.SyncProducer, newStats *metrics.Metrics) {
+// Start launches the health server and gracefully shuts down on signal.
+func Start(wg *sync.WaitGroup, shutdown chan struct{}, redisClient *redis.Client, kafkaProducer sarama.AsyncProducer, stats *metrics.Metrics) {
 	log := logger.GetLogger()
 	cfg := config.GetConfig()
 
-	redisClient = newRedisClient
-	producer = newProducer
-	stats = newStats
-
 	mux := http.NewServeMux()
+	hs := &healthServer{
+		redisClient:   redisClient,
+		kafkaProducer: kafkaProducer,
+		stats:         stats,
+	}
 
-	mux.HandleFunc("/health", checkHealth)
-
-	mux.HandleFunc("/metrics", checkMetrics)
+	mux.HandleFunc("/health", hs.handleHealth)
+	mux.HandleFunc("/metrics", hs.handleMetrics)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HealthCheckPort),
@@ -41,6 +43,8 @@ func StartHealthCheck(wg *sync.WaitGroup, shutdown chan struct{}, newRedisClient
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
+
+	hs.httpServer = server
 
 	wg.Add(1)
 	go func() {
@@ -51,9 +55,9 @@ func StartHealthCheck(wg *sync.WaitGroup, shutdown chan struct{}, newRedisClient
 		}
 	}()
 
-	// Graceful shutdown for health check server
+	// Graceful shutdown
 	go func() {
-		<-shutdown // Wait for the main shutdown signal
+		<-shutdown
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {

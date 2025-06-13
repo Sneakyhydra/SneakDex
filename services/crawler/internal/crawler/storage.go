@@ -13,14 +13,14 @@ import (
 	"github.com/sneakyhydra/sneakdex/crawler/internal/logger"
 )
 
-// initializeRedis sets up Redis client with proper configuration
+// initializeRedis sets up the Redis client and attempts connection with exponential backoff.
 func (crawler *Crawler) initializeRedis() error {
 	log := logger.GetLogger()
 	cfg := config.GetConfig()
-	// Construct the Redis address from host and port
+
 	redisAddr := fmt.Sprintf("%s:%d", cfg.RedisHost, cfg.RedisPort)
 
-	// Create a new Redis client with the provided configuration
+	// Initialize Redis client
 	crawler.redisClient = redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
 		Password:     cfg.RedisPassword,
@@ -31,36 +31,36 @@ func (crawler *Crawler) initializeRedis() error {
 		MaxRetries:   cfg.RedisRetryMax,
 	})
 
-	// Test connection with retries
+	// Attempt to connect with retries
 	for attempt := 1; attempt <= cfg.RedisRetryMax; attempt++ {
-		ctx, cancel := context.WithTimeout(ctx, cfg.RedisTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.RedisTimeout)
 		err := crawler.redisClient.Ping(ctx).Err()
 		cancel()
 
 		if err == nil {
-			log.Info("Redis connection established")
+			log.Infof("Redis connection established at %s", redisAddr)
 			return nil
 		}
 
 		log.Warnf("Redis connection attempt %d/%d failed: %v", attempt, cfg.RedisRetryMax, err)
+
 		if attempt < cfg.RedisRetryMax {
-			// Exponential backoff for retries
 			backoff := time.Duration(math.Pow(2, float64(attempt))) * 100 * time.Millisecond
 			time.Sleep(backoff)
 		}
 	}
 
-	return fmt.Errorf("failed to connect to redis after %d attempts. please ensure redis is running on %s", cfg.RedisRetryMax, redisAddr)
+	return fmt.Errorf("failed to connect to Redis after %d attempts (addr: %s)", cfg.RedisRetryMax, redisAddr)
 }
 
-// checkRedisSet checks if URL exists in the specified Redis set with retry logic
+// checkRedisSet checks whether a URL exists in the specified Redis set with retry logic.
 func (crawler *Crawler) checkRedisSet(setKey, url string) (bool, error) {
 	log := logger.GetLogger()
 	cfg := config.GetConfig()
-	var lastErr error
 
+	var lastErr error
 	for attempt := 1; attempt <= cfg.RedisRetryMax; attempt++ {
-		ctx, cancel := context.WithTimeout(ctx, cfg.RedisTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.RedisTimeout)
 
 		exists, err := crawler.redisClient.SIsMember(ctx, setKey, url).Result()
 		cancel()
@@ -73,10 +73,9 @@ func (crawler *Crawler) checkRedisSet(setKey, url string) (bool, error) {
 		}
 
 		lastErr = err
-		log.Warnf("Redis SIsMember '%s' attempt %d/%d failed for URL %s: %v",
-			setKey, attempt, cfg.RedisRetryMax, url, err)
+		log.Warnf("Redis SIsMember error (set: %s, url: %s, attempt: %d/%d): %v",
+			setKey, url, attempt, cfg.RedisRetryMax, err)
 
-		// Don't sleep on the last attempt
 		if attempt < cfg.RedisRetryMax {
 			backoff := time.Duration(math.Pow(2, float64(attempt))) * 100 * time.Millisecond
 			time.Sleep(backoff)
@@ -84,48 +83,47 @@ func (crawler *Crawler) checkRedisSet(setKey, url string) (bool, error) {
 	}
 
 	crawler.stats.IncrementRedisFailed()
-	return false, fmt.Errorf("failed after %d attempts: %w", cfg.RedisRetryMax, lastErr)
+	return false, fmt.Errorf("checkRedisSet failed after %d attempts for set %s: %w", cfg.RedisRetryMax, setKey, lastErr)
 }
 
-// cacheAndLogFound caches the URL locally and logs the discovery
+// cacheAndLogFound updates the local visited cache and logs the discovery.
 func (crawler *Crawler) cacheAndLogFound(url, setType string) {
 	log := logger.GetLogger()
+
 	crawler.visited.Store(url, struct{}{})
+
 	log.WithFields(logrus.Fields{
 		"url":      url,
 		"set_type": setType,
-	}).Trace("URL found in redis")
+	}).Trace("URL found in Redis set and cached locally")
 }
 
-// isURLVisited checks if a URL has already been visited or is pending,
-// using both local memory cache and Redis sets for quick lookups.
+// isURLVisited checks if a URL has already been processed (in visited or pending sets).
 func (crawler *Crawler) isURLVisited(url string) (bool, error) {
 	log := logger.GetLogger()
-	// Check local memory cache first for quick lookups
-	if _, ok := crawler.visited.Load(url); ok {
-		log.WithFields(logrus.Fields{"url": url}).Trace("URL found in local visited/pending cache")
+
+	// Check in-memory local cache first
+	if _, exists := crawler.visited.Load(url); exists {
+		log.WithField("url", url).Trace("URL found in local cache")
 		return true, nil
 	}
 
-	// Check both Redis sets with retry logic
-	visited, err := crawler.checkRedisSet("crawler:visited_urls", url)
-	if err != nil {
-		return false, fmt.Errorf("failed to check visited urls in redis: %w", err)
-	}
-	if visited {
+	// Check visited set in Redis
+	if visited, err := crawler.checkRedisSet("crawler:visited_urls", url); err != nil {
+		return false, fmt.Errorf("failed checking visited_urls in Redis: %w", err)
+	} else if visited {
 		crawler.cacheAndLogFound(url, "visited")
 		return true, nil
 	}
 
-	pending, err := crawler.checkRedisSet("crawler:pending_urls", url)
-	if err != nil {
-		return false, fmt.Errorf("failed to check pending urls in redis: %w", err)
-	}
-	if pending {
+	// Check pending set in Redis
+	if pending, err := crawler.checkRedisSet("crawler:pending_urls", url); err != nil {
+		return false, fmt.Errorf("failed checking pending_urls in Redis: %w", err)
+	} else if pending {
 		crawler.cacheAndLogFound(url, "pending")
 		return true, nil
 	}
 
-	log.WithFields(logrus.Fields{"url": url}).Trace("URL not found in redis, considered new")
+	log.WithField("url", url).Trace("URL not found in Redis; treated as new")
 	return false, nil
 }

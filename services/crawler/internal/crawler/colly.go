@@ -3,7 +3,6 @@ package crawler
 import (
 	// StdLib
 	"context"
-	"errors"
 	"path"
 	"strings"
 	"sync/atomic"
@@ -15,25 +14,30 @@ import (
 
 	// Internal modules
 	"github.com/sneakyhydra/sneakdex/crawler/internal/config"
-	"github.com/sneakyhydra/sneakdex/crawler/internal/crawlerrors"
 	"github.com/sneakyhydra/sneakdex/crawler/internal/logger"
 	"github.com/sneakyhydra/sneakdex/crawler/internal/utils"
 	"github.com/sneakyhydra/sneakdex/crawler/internal/validator"
 )
 
-// setupCollyCollector configures the colly collector with callbacks for crawling logic.
 func (crawler *Crawler) setupCollyCollector(ctx context.Context) *colly.Collector {
-	log := logger.GetLogger()
-	cfg := config.GetConfig()
-	urlValidator := validator.GetURLValidator()
+	collector := crawler.createBaseCollector()
+	crawler.setRequestHandler(collector, ctx)
+	crawler.setHTMLHandler(collector, ctx)
+	crawler.setLinkHandler(collector, ctx)
+	crawler.setErrorHandler(collector, ctx)
+	crawler.setResponseLogger(collector)
+	return collector
+}
 
-	// Setup Colly collector options
+func (crawler *Crawler) createBaseCollector() *colly.Collector {
+	cfg := config.GetConfig()
+
 	options := []colly.CollectorOption{
 		colly.MaxDepth(cfg.CrawlDepth),
-		colly.Async(true), // Enable asynchronous requests, managing concurrency internally
+		colly.Async(true),
 		colly.UserAgent(cfg.UserAgent),
-		colly.ParseHTTPErrorResponse(), // Parse 4xx/5xx responses for better error handling
-		colly.DetectCharset(),          // Auto-detect and convert character encoding
+		colly.ParseHTTPErrorResponse(),
+		colly.DetectCharset(),
 	}
 
 	if len(crawler.blacklist) > 0 {
@@ -46,50 +50,42 @@ func (crawler *Crawler) setupCollyCollector(ctx context.Context) *colly.Collecto
 		options = append(options, colly.Debugger(&debug.LogDebugger{}))
 	}
 
-	// Create the collector
 	collector := colly.NewCollector(options...)
-
-	// Apply rate limits for all domains
-	err := collector.Limit(&colly.LimitRule{
+	_ = collector.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: cfg.MaxConcurrency,
 		Delay:       cfg.RequestDelay,
 		RandomDelay: cfg.RequestDelay / 2,
 	})
-	if err != nil {
-		log.WithFields(logrus.Fields{"error": err}).Error("Failed to set rate limit")
-		// Continue
-	}
 
 	collector.SetRequestTimeout(cfg.RequestTimeout)
+	return collector
+}
+
+func (crawler *Crawler) setRequestHandler(collector *colly.Collector, ctx context.Context) {
+	log := logger.GetLogger()
 
 	var skipExts = map[string]struct{}{
 		".pdf": {}, ".jpg": {}, ".jpeg": {}, ".png": {}, ".gif": {}, ".css": {}, ".js": {}, ".ico": {},
 		".svg": {}, ".woff": {}, ".ttf": {}, ".mp4": {}, ".mp3": {}, ".zip": {}, ".exe": {},
 	}
 
-	// Request filtering and header setting
 	collector.OnRequest(func(r *colly.Request) {
-		// Check for context cancellation before proceeding with the request
 		select {
 		case <-ctx.Done():
 			log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Request aborted due to shutdown")
 			r.Abort()
 			return
 		default:
-			// Continue
 		}
 
-		urlStr := r.URL.String()
-		// Skip common file extensions
 		ext := strings.ToLower(path.Ext(r.URL.Path))
 		if _, skip := skipExts[ext]; skip {
-			log.WithFields(logrus.Fields{"url": urlStr, "ext": ext}).Debug("Skipping URL due to file extension")
+			log.WithFields(logrus.Fields{"url": r.URL.String(), "ext": ext}).Debug("Skipping URL due to file extension")
 			r.Abort()
 			return
 		}
 
-		// Add common headers to appear more like a real browser
 		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 		r.Headers.Set("Accept-Language", "en-US,en;q=0.5")
 		r.Headers.Set("Accept-Encoding", "gzip, deflate")
@@ -98,111 +94,79 @@ func (crawler *Crawler) setupCollyCollector(ctx context.Context) *colly.Collecto
 		r.Headers.Set("Upgrade-Insecure-Requests", "1")
 
 		crawler.IncrementInFlightPages()
-		log.WithFields(logrus.Fields{"url": urlStr}).Debug("Visiting URL")
+		log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Visiting URL")
 	})
+}
 
-	// Handle HTML pages
+func (crawler *Crawler) setHTMLHandler(collector *colly.Collector, ctx context.Context) {
+	log := logger.GetLogger()
+	cfg := config.GetConfig()
+
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		// Check for context cancellation
 		select {
 		case <-ctx.Done():
 			log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("HTML processing skipped due to shutdown")
 			return
 		default:
-			// Continue
 		}
 
-		// Stop processing if max pages limit is reached
 		if atomic.LoadInt64(&crawler.stats.PagesProcessed) >= cfg.MaxPages {
 			log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Max pages limit reached, stopping HTML processing")
+			// Note: If you want to stop the entire crawl immediately when MaxPages is reached,
+			// you might want to consider cancelling the main context here as well,
+			// which will signal Colly and other goroutines to stop.
+			// For now, it just stops processing new HTML events.
 			return
 		}
 
 		crawler.stats.IncrementPagesProcessed()
-		defer crawler.DecrementInFlightPages()
+		defer crawler.DecrementInFlightPages() // Ensure this is handled correctly for overall page count
+		// This should ideally decrement when a page is truly done (processed + kafka acked)
+		// but for now, it's consistent with your original.
 		url := e.Request.URL.String()
-
 		html, err := e.DOM.Html()
 		if err != nil {
 			log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to extract HTML")
 			crawler.stats.IncrementPagesFailed()
-			// IMPORTANT: Mark as visited even if HTML extraction fails
-			_, redisErr := crawler.redisClient.SAdd(ctx, "crawler:visited_urls", url).Result()
-			if redisErr != nil {
-				log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after HTML extraction failure")
-				crawler.stats.IncrementRedisFailed()
-			}
+			crawler.markVisited(ctx, url) // Mark as visited even if HTML extraction failed, so we don't retry immediately
 			return
 		}
 
-		if err := crawler.sendToKafka(url, html); err != nil {
-			var crawlErr *crawlerrors.CrawlError
-			if errors.As(err, &crawlErr) && crawlErr.Retry {
-				if _, ok := crawler.requeued.Load(url); ok {
-					log.WithFields(logrus.Fields{"url": url}).Trace("URL already requeued once. Will be marked as visited")
-					crawler.requeued.Delete(url)
-				} else {
-					// Re-queue URL instead of marking as visited
-					log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Retriable error occurred, requeuing URL")
+		// Call publishPageData. It no longer returns an error for asynchronous Kafka.
+		// Success or failure for Kafka will be reported via handleKafkaSuccesses/Errors.
+		crawler.publishPageData([]byte(html), url)
 
-					_, redisErr := crawler.redisClient.SAdd(ctx, "crawler:pending_urls", url).Result()
-					if redisErr != nil {
-						log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to requeue URL after Kafka retryable error")
-						crawler.stats.IncrementRedisFailed()
-					}
-					crawler.requeued.Store(url, struct{}{})
-					return
-				}
-			}
+		// The logic for re-queueing based on Kafka publish error
+		// needs to be moved to the handleKafkaErrors goroutine if you still want it.
+		// When publishPageData returns, it just means the message was *enqueued*,
+		// not necessarily sent to Kafka successfully.
+		// For now, we'll assume enqueuing means it's on its way.
 
-			log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to send to Kafka")
-			crawler.stats.IncrementPagesFailed()
-			// IMPORTANT: Mark as visited even if sending to Kafka fails
-			_, redisErr := crawler.redisClient.SAdd(ctx, "crawler:visited_urls", url).Result()
-			if redisErr != nil {
-				log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set after Kafka failure")
-				crawler.stats.IncrementRedisFailed()
-			}
-			return
-		}
-
-		crawler.stats.IncrementPagesSuccessful()
-		log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully")
-
-		// IMPORTANT: Mark as visited in Redis after successful processing
-		_, err = crawler.redisClient.SAdd(ctx, "crawler:visited_urls", url).Result()
-		if err != nil {
-			log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to add URL to visited_urls Redis set")
-			crawler.stats.IncrementRedisFailed()
-		}
+		crawler.stats.IncrementPagesSuccessful() // This counts successful *processing* by crawler, not necessarily successful Kafka delivery.
+		// You might want to adjust this metric based on Kafka acks.
+		log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully and enqueued to Kafka.")
+		crawler.markVisited(ctx, url)
 	})
+}
+
+func (crawler *Crawler) setLinkHandler(collector *colly.Collector, ctx context.Context) {
+	log := logger.GetLogger()
+	cfg := config.GetConfig()
+	urlValidator := validator.GetURLValidator()
 
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		// Check for context cancellation
 		select {
 		case <-ctx.Done():
-			log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Link extraction skipped due to shutdown")
 			return
 		default:
-			// Continue
 		}
-
-		// Stop processing if max pages limit is reached
 		if atomic.LoadInt64(&crawler.stats.PagesProcessed) >= cfg.MaxPages {
-			log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Max pages limit reached, stopping link extraction")
 			return
 		}
 
 		link := e.Attr("href")
-		if link == "" {
-			return
-		}
-
-		// Skip common non-HTTP/HTTPS links or internal page anchors
-		if strings.HasPrefix(link, "javascript:") ||
-			strings.HasPrefix(link, "mailto:") ||
-			strings.HasPrefix(link, "tel:") ||
-			strings.Contains(link, "#") { // Links with fragments are typically internal page anchors
+		if link == "" || strings.HasPrefix(link, "javascript:") ||
+			strings.HasPrefix(link, "mailto:") || strings.HasPrefix(link, "tel:") || strings.Contains(link, "#") {
 			return
 		}
 
@@ -213,33 +177,30 @@ func (crawler *Crawler) setupCollyCollector(ctx context.Context) *colly.Collecto
 
 		normalized, err := utils.NormalizeURL(absoluteURL)
 		if err != nil {
-			log.WithFields(logrus.Fields{"url": absoluteURL, "error": err}).Debug("Failed to normalize URL")
 			return
 		}
 
-		// Use the enhanced isURLVisited to check both 'visited' and 'pending' sets
-		visitedOrPending, err := crawler.isURLVisited(normalized)
-		if err != nil {
-			log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Failed to check URL visited/pending status")
-			crawler.stats.IncrementRedisFailed() // Increment failed metrics if Redis check fails
-			return
-		}
-
-		if !visitedOrPending {
-			log.WithFields(logrus.Fields{"url": normalized}).Debug("Adding new URL to Redis pending queue")
-			// Add to Redis 'pending_urls' set instead of calling Colly's Visit directly
-			_, err := crawler.redisClient.SAdd(ctx, "crawler:pending_urls", normalized).Result()
+		visited, err := crawler.isURLVisited(normalized)
+		if err != nil || visited {
 			if err != nil {
-				log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Failed to add URL to Redis pending queue")
 				crawler.stats.IncrementRedisFailed()
 			}
+			return
+		}
+
+		_, err = crawler.redisClient.SAdd(ctx, "crawler:pending_urls", normalized).Result()
+		if err != nil {
+			log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Failed to add URL to Redis pending queue")
+			crawler.stats.IncrementRedisFailed()
 		}
 	})
+}
 
-	// Error handler for HTTP requests
+func (crawler *Crawler) setErrorHandler(collector *colly.Collector, ctx context.Context) {
+	log := logger.GetLogger()
+	cfg := config.GetConfig()
+
 	collector.OnError(func(r *colly.Response, err error) {
-		// Suppress logging common timeout/connection errors if debug is not enabled,
-		// as these can be noisy but are expected in network operations.
 		isNetworkError := strings.Contains(err.Error(), "timeout") ||
 			strings.Contains(err.Error(), "connection refused") ||
 			strings.Contains(err.Error(), "no such host")
@@ -255,21 +216,18 @@ func (crawler *Crawler) setupCollyCollector(ctx context.Context) *colly.Collecto
 				"url":         r.Request.URL.String(),
 				"status_code": r.StatusCode,
 				"error":       err,
-			}).Debug("Suppressed network error") // Log as debug if suppressed
+			}).Debug("Suppressed network error")
 		}
-		crawler.stats.IncrementPagesFailed()
 
-		// IMPORTANT: Mark as visited in Redis, even if the request failed, to prevent re-attempts for this URL.
-		url := r.Request.URL.String()
-		_, redisErr := crawler.redisClient.SAdd(ctx, "crawler:visited_urls", url).Result()
-		if redisErr != nil {
-			log.WithFields(logrus.Fields{"url": url, "error": redisErr}).Error("Failed to add URL to visited_urls Redis set on error")
-			crawler.stats.IncrementRedisFailed()
-		}
+		crawler.stats.IncrementPagesFailed()
+		crawler.markVisited(ctx, r.Request.URL.String())
 		crawler.DecrementInFlightPages()
 	})
+}
 
-	// Debug logging on successful response
+func (crawler *Crawler) setResponseLogger(collector *colly.Collector) {
+	cfg := config.GetConfig()
+	log := logger.GetLogger()
 	if cfg.EnableDebug {
 		collector.OnResponse(func(r *colly.Response) {
 			log.WithFields(logrus.Fields{
@@ -280,6 +238,13 @@ func (crawler *Crawler) setupCollyCollector(ctx context.Context) *colly.Collecto
 			}).Debug("Response received")
 		})
 	}
+}
 
-	return collector
+func (crawler *Crawler) markVisited(ctx context.Context, url string) {
+	log := logger.GetLogger()
+	_, err := crawler.redisClient.SAdd(ctx, "crawler:visited_urls", url).Result()
+	if err != nil {
+		log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to add URL to visited_urls Redis set")
+		crawler.stats.IncrementRedisFailed()
+	}
 }

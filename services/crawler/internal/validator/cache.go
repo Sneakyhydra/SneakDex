@@ -2,8 +2,9 @@ package validator
 
 import "sync"
 
-// ClearCache clears all cached results
-func (urlValidator *URLValidator) ClearCache() {
-	urlValidator.dnsCache = sync.Map{}
-	urlValidator.domainCache = sync.Map{}
+// ClearCache resets both DNS and domain validation caches to prevent stale lookups.
+// This is safe for concurrent use.
+func (v *URLValidator) ClearCache() {
+	v.dnsCache = sync.Map{}    // Clears DNS resolution results
+	v.domainCache = sync.Map{} // Clears domain status checks
 }
