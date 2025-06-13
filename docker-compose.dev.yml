@@ -8,6 +8,7 @@ volumes:
   crawler-data:
   index-data:
 
+
 services:
   kafka:
     image: bitnami/kafka:latest
@@ -31,7 +32,7 @@ services:
     networks:
       - sneakdex-network
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: [ "CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,19 +50,19 @@ services:
     networks:
       - sneakdex-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
       start_period: 15s
     restart: unless-stopped
-  
+
   crawler-dev:
     build:
       context: ./services/crawler
       dockerfile: Dockerfile.dev
     container_name: sneakdex-crawler-dev
-    init: true 
+    init: true
     environment:
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_HTML: raw-html
@@ -73,19 +74,7 @@ services:
       REDIS_TIMEOUT: 60s
       REDIS_RETRY_MAX: 3
       START_URLS: >
-        https://en.wikipedia.org/wiki/Special:Random,
-        https://simple.wikipedia.org/wiki/Special:Random,
-        https://news.ycombinator.com,
-        https://www.reuters.com/news/archive/worldNews,
-        https://www.bbc.com/news,
-        https://github.com/trending,
-        https://stackoverflow.com/questions,
-        https://dev.to,
-        https://developer.mozilla.org/en-US/docs/Web,
-        https://arxiv.org/list/cs/new,
-        https://eng.uber.com,
-        https://netflixtechblog.com,
-        https://blog.cloudflare.com
+        https://en.wikipedia.org/wiki/Special:Random, https://simple.wikipedia.org/wiki/Special:Random, https://news.ycombinator.com, https://www.reuters.com/news/archive/worldNews, https://www.bbc.com/news, https://github.com/trending, https://stackoverflow.com/questions, https://dev.to, https://developer.mozilla.org/en-US/docs/Web, https://arxiv.org/list/cs/new, https://eng.uber.com, https://netflixtechblog.com, https://blog.cloudflare.com
       CRAWL_DEPTH: 3
       MAX_PAGES: 10000
       URL_WHITELIST: ""
@@ -104,6 +93,7 @@ services:
       - ./services/crawler/.air.toml:/app/.air.toml
       - ./services/crawler/go.mod:/app/go.mod
       - ./services/crawler/go.sum:/app/go.sum
+      - crawler-data:/app/data
     depends_on:
       kafka:
         condition: service_healthy
@@ -125,6 +115,7 @@ services:
       RUST_LOG: info
     volumes:
       - ./services/parser:/app
+      - crawler-data:/app/crawler-data
     depends_on:
       kafka:
         condition: service_healthy
@@ -181,7 +172,7 @@ services:
     networks:
       - sneakdex-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
