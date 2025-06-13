@@ -302,7 +302,7 @@ logs-redis:
 
 start-crawler-dev:
 	@echo "$(PURPLE)🕷️  Starting crawler-dev service...$(NC)"
-	$(DC_DEV) up -d crawler-dev
+	$(DC_DEV) up -d crawler-dev --scale crawler-dev=5
 
 stop-crawler-dev:
 	@echo "$(PURPLE)⏹️  Stopping crawler-dev service...$(NC)"

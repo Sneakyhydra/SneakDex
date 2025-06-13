@@ -37,7 +37,7 @@ func (crawler *Crawler) initializeKafka() error {
 	// Flush.Bytes: Max bytes to buffer before sending a batch.
 	// Flush.Messages: Max messages to buffer before sending a batch.
 	// Flush.Frequency: Max time to wait before sending a batch, even if not full.
-	kafkaConfig.Producer.Flush.Bytes = cfg.MaxContentSize         // 1MB batch size
+	kafkaConfig.Producer.Flush.Bytes = cfg.MaxContentSize         // 5MB batch size
 	kafkaConfig.Producer.Flush.Messages = 1000                    // Flush after 1000 messages
 	kafkaConfig.Producer.Flush.Frequency = 100 * time.Millisecond // Flush every 100ms
 	kafkaConfig.Producer.MaxMessageBytes = cfg.MaxContentSize

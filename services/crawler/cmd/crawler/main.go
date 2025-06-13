@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,6 +43,14 @@ func main() {
 // This separation makes the code more testable and provides cleaner error handling
 func run() exitCode {
 	fmt.Printf("%s starting...\n", AppName)
+
+	// Start pprof server
+	go func() {
+		fmt.Println("pprof listening at http://0.0.0.0:6060/debug/pprof/")
+		if err := http.ListenAndServe("0.0.0.0:6060", nil); err != nil {
+			logrus.WithError(err).Error("pprof server failed")
+		}
+	}()
 
 	// Initialize configuration
 	if err := initializeConfig(); err != nil {
