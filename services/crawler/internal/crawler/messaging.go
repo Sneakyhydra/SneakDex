@@ -26,7 +26,7 @@ func (crawler *Crawler) initializeKafka() error {
 	// sarama.WaitForAll: will wait for all in-sync replicas to commit the message. (Highest durability)
 	// sarama.WaitForLocal: will wait for the leader to write the record to its local log. (Good balance)
 	// sarama.NoResponse: producer will not wait for any acknowledgment. (Highest throughput, lowest durability)
-	kafkaConfig.Producer.RequiredAcks = sarama.WaitForAll // Or adjust based on your durability needs
+	kafkaConfig.Producer.RequiredAcks = sarama.WaitForLocal // Or adjust based on your durability needs
 
 	// Configure retries for transient errors
 	kafkaConfig.Producer.Retry.Max = cfg.KafkaRetryMax

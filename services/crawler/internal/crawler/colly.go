@@ -19,12 +19,24 @@ import (
 	"github.com/sneakyhydra/sneakdex/crawler/internal/validator"
 )
 
+// isContextDone checks if the context is done without blocking
+func isContextDone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// setupCollyCollector initializes a Colly collector with the necessary handlers and configurations
 func (crawler *Crawler) setupCollyCollector(ctx context.Context) *colly.Collector {
 	collector := crawler.createBaseCollector()
 	crawler.setRequestHandler(collector, ctx)
 	crawler.setHTMLHandler(collector, ctx)
 	crawler.setLinkHandler(collector, ctx)
 	crawler.setErrorHandler(collector, ctx)
+	crawler.setResponseHandler(collector, ctx)
 	crawler.setResponseLogger(collector)
 	return collector
 }
@@ -64,6 +76,7 @@ func (crawler *Crawler) createBaseCollector() *colly.Collector {
 
 func (crawler *Crawler) setRequestHandler(collector *colly.Collector, ctx context.Context) {
 	log := logger.GetLogger()
+	cfg := config.GetConfig()
 
 	var skipExts = map[string]struct{}{
 		".pdf": {}, ".jpg": {}, ".jpeg": {}, ".png": {}, ".gif": {}, ".css": {}, ".js": {}, ".ico": {},
@@ -71,12 +84,16 @@ func (crawler *Crawler) setRequestHandler(collector *colly.Collector, ctx contex
 	}
 
 	collector.OnRequest(func(r *colly.Request) {
-		select {
-		case <-ctx.Done():
+		if isContextDone(ctx) {
 			log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Request aborted due to shutdown")
 			r.Abort()
 			return
-		default:
+		}
+
+		if atomic.LoadInt64(&crawler.stats.PagesProcessed) >= cfg.MaxPages {
+			log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Skipping due to MaxPages limit")
+			r.Abort()
+			return
 		}
 
 		ext := strings.ToLower(path.Ext(r.URL.Path))
@@ -103,11 +120,10 @@ func (crawler *Crawler) setHTMLHandler(collector *colly.Collector, ctx context.C
 	cfg := config.GetConfig()
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		select {
-		case <-ctx.Done():
+		defer crawler.DecrementInFlightPages() // Ensure this is handled correctly for overall page count
+		if isContextDone(ctx) {
 			log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("HTML processing skipped due to shutdown")
 			return
-		default:
 		}
 
 		if atomic.LoadInt64(&crawler.stats.PagesProcessed) >= cfg.MaxPages {
@@ -120,7 +136,6 @@ func (crawler *Crawler) setHTMLHandler(collector *colly.Collector, ctx context.C
 		}
 
 		crawler.stats.IncrementPagesProcessed()
-		defer crawler.DecrementInFlightPages() // Ensure this is handled correctly for overall page count
 		// This should ideally decrement when a page is truly done (processed + kafka acked)
 		// but for now, it's consistent with your original.
 		url := e.Request.URL.String()
@@ -155,11 +170,10 @@ func (crawler *Crawler) setLinkHandler(collector *colly.Collector, ctx context.C
 	urlValidator := validator.GetURLValidator()
 
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		select {
-		case <-ctx.Done():
+		if isContextDone(ctx) {
 			return
-		default:
 		}
+
 		if atomic.LoadInt64(&crawler.stats.PagesProcessed) >= cfg.MaxPages {
 			return
 		}
@@ -183,6 +197,7 @@ func (crawler *Crawler) setLinkHandler(collector *colly.Collector, ctx context.C
 		visited, err := crawler.isURLVisited(normalized)
 		if err != nil || visited {
 			if err != nil {
+				log.WithFields(logrus.Fields{"url": normalized, "error": err}).Error("Error checking if URL is visited")
 				crawler.stats.IncrementRedisFailed()
 			}
 			return
@@ -201,6 +216,8 @@ func (crawler *Crawler) setErrorHandler(collector *colly.Collector, ctx context.
 	cfg := config.GetConfig()
 
 	collector.OnError(func(r *colly.Response, err error) {
+		defer crawler.DecrementInFlightPages()
+		defer crawler.stats.IncrementPagesFailed()
 		isNetworkError := strings.Contains(err.Error(), "timeout") ||
 			strings.Contains(err.Error(), "connection refused") ||
 			strings.Contains(err.Error(), "no such host")
@@ -219,9 +236,20 @@ func (crawler *Crawler) setErrorHandler(collector *colly.Collector, ctx context.
 			}).Debug("Suppressed network error")
 		}
 
-		crawler.stats.IncrementPagesFailed()
 		crawler.markVisited(ctx, r.Request.URL.String())
-		crawler.DecrementInFlightPages()
+	})
+}
+
+func (crawler *Crawler) setResponseHandler(collector *colly.Collector, ctx context.Context) {
+	log := logger.GetLogger()
+	collector.OnResponse(func(r *colly.Response) {
+		if !strings.Contains(r.Headers.Get("Content-Type"), "text/html") {
+			log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("Non-HTML content received, skipping")
+			r.Request.Abort()
+			crawler.markVisited(ctx, r.Request.URL.String())
+			crawler.DecrementInFlightPages()
+			return
+		}
 	})
 }
 
@@ -232,6 +260,7 @@ func (crawler *Crawler) setResponseLogger(collector *colly.Collector) {
 		collector.OnResponse(func(r *colly.Response) {
 			log.WithFields(logrus.Fields{
 				"url":          r.Request.URL.String(),
+				"method":       r.Request.Method, // Add request method
 				"status_code":  r.StatusCode,
 				"content_type": r.Headers.Get("Content-Type"),
 				"size":         len(r.Body),

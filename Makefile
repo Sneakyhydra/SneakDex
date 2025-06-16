@@ -216,7 +216,7 @@ clean-dev:
 
 up-prod:
 	@echo "$(GREEN)🚀 Starting production environment...$(NC)"
-	COMPOSE_BAKE=true $(DC_PROD) up --build -d
+	COMPOSE_BAKE=true $(DC_PROD) up --build -d --scale crawler=5
 
 down-prod:
 	@echo "$(RED)🛑 Stopping and removing production containers...$(NC)"
@@ -302,7 +302,8 @@ logs-redis:
 
 start-crawler-dev:
 	@echo "$(PURPLE)🕷️  Starting crawler-dev service...$(NC)"
-	$(DC_DEV) up -d crawler-dev --scale crawler-dev=5
+	$(DC_DEV) up -d crawler-dev 
+# 	--scale crawler-dev=5
 
 stop-crawler-dev:
 	@echo "$(PURPLE)⏹️  Stopping crawler-dev service...$(NC)"

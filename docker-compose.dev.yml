@@ -63,8 +63,8 @@ services:
       dockerfile: Dockerfile.dev
     # container_name: sneakdex-crawler-dev
     init: true
-    # ports:
-    #   - "6060:6060"
+    ports:
+      - "6060:6060"
     environment:
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC_HTML: raw-html
@@ -81,7 +81,7 @@ services:
       MAX_PAGES: 10000
       URL_WHITELIST: ""
       URL_BLACKLIST: ""
-      MAX_CONCURRENCY: 32
+      MAX_CONCURRENCY: 8
       REQUEST_TIMEOUT: 30s
       REQUEST_DELAY: 100ms
       MAX_CONTENT_SIZE: 5242880 # 5 MB

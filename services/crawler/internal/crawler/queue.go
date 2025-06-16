@@ -21,7 +21,9 @@ func (crawler *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 	log.Info("Starting Redis queue feeder goroutine")
 
 	ticker := time.NewTicker(200 * time.Millisecond)
+	waitTicker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
+	defer waitTicker.Stop()
 
 	emptyQueueChecks := 0
 	const maxEmptyChecks = 5
@@ -30,7 +32,11 @@ func (crawler *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 		select {
 		case <-ctx.Done():
 			log.Info("Redis queue feeder stopping due to context cancellation")
+			collector.Wait()
 			return
+
+		case <-waitTicker.C:
+			collector.Wait()
 
 		case <-ticker.C:
 			// Check if page processing limit is reached
@@ -79,6 +85,10 @@ func (crawler *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 				}
 
 				crawler.stats.IncrementPagesFailed()
+			}
+
+			if crawler.GetInFlightPages() == 0 {
+				collector.Wait()
 			}
 		}
 	}

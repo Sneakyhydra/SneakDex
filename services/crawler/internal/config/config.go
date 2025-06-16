@@ -78,7 +78,7 @@ func InitializeConfig() error {
 // GetConfig returns the initialized configuration instance. Panics if not initialized.
 func GetConfig() *Config {
 	if cfg == nil {
-		panic("configuration not initialized: call InitializeConfig() first")
+		panic("configuration is nil: InitializeConfig() must be called before accessing config. Check main.go startup sequence.")
 	}
 	return cfg
 }

@@ -44,11 +44,23 @@ func main() {
 func run() exitCode {
 	fmt.Printf("%s starting...\n", AppName)
 
-	// Start pprof server
+	pprofCtx, pprofCancel := context.WithCancel(context.Background())
+	defer pprofCancel()
+
 	go func() {
-		fmt.Println("pprof listening at http://0.0.0.0:6060/debug/pprof/")
-		if err := http.ListenAndServe("0.0.0.0:6060", nil); err != nil {
-			logrus.WithError(err).Error("pprof server failed")
+		server := &http.Server{Addr: "0.0.0.0:6060"}
+
+		go func() {
+			<-pprofCtx.Done()
+			logrus.Info("Shutting down pprof server")
+			if err := server.Shutdown(context.Background()); err != nil {
+				logrus.WithError(err).Error("Failed to shutdown pprof server")
+			}
+		}()
+
+		logrus.Info("Starting pprof server at :6060")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logrus.WithError(err).Error("pprof server failed unexpectedly")
 		}
 	}()
 
@@ -65,6 +77,10 @@ func run() exitCode {
 	}
 
 	log := logger.GetLogger()
+	if log == nil {
+		fmt.Println("Logger is not initialized")
+		return exitLoggerError
+	}
 	log.Info("Configuration and logging initialized successfully")
 
 	// Create crawler instance with proper error context
@@ -139,6 +155,13 @@ func runCrawlerWithShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logger
 	case sig := <-sigChan:
 		shutdownReason = fmt.Sprintf("received OS signal: %v", sig)
 		log.WithField("signal", sig.String()).Warn("Shutdown signal received")
+
+		// Use select with timeout to avoid indefinite block
+		select {
+		case <-crawlerDone:
+		case <-time.After(ShutdownTimeout / 3):
+			log.Warn("Timeout draining crawlerDone; proceeding to shutdown")
+		}
 
 	case crawlerErr = <-crawlerDone:
 		if crawlerErr != nil {

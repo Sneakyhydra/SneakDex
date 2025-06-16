@@ -34,8 +34,8 @@ func (crawler *Crawler) initializeRedis() error {
 	// Attempt to connect with retries
 	for attempt := 1; attempt <= cfg.RedisRetryMax; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.RedisTimeout)
+		defer cancel()
 		err := crawler.redisClient.Ping(ctx).Err()
-		cancel()
 
 		if err == nil {
 			log.Infof("Redis connection established at %s", redisAddr)
@@ -61,9 +61,8 @@ func (crawler *Crawler) checkRedisSet(setKey, url string) (bool, error) {
 	var lastErr error
 	for attempt := 1; attempt <= cfg.RedisRetryMax; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.RedisTimeout)
-
+		defer cancel()
 		exists, err := crawler.redisClient.SIsMember(ctx, setKey, url).Result()
-		cancel()
 
 		if err == nil {
 			if exists {
@@ -101,13 +100,11 @@ func (crawler *Crawler) cacheAndLogFound(url, setType string) {
 // isURLVisited checks if a URL has already been processed (in visited or pending sets).
 func (crawler *Crawler) isURLVisited(url string) (bool, error) {
 	log := logger.GetLogger()
-
 	// Check in-memory local cache first
 	if _, exists := crawler.visited.Load(url); exists {
 		log.WithField("url", url).Trace("URL found in local cache")
 		return true, nil
 	}
-
 	// Check visited set in Redis
 	if visited, err := crawler.checkRedisSet("crawler:visited_urls", url); err != nil {
 		return false, fmt.Errorf("failed checking visited_urls in Redis: %w", err)
@@ -115,7 +112,6 @@ func (crawler *Crawler) isURLVisited(url string) (bool, error) {
 		crawler.cacheAndLogFound(url, "visited")
 		return true, nil
 	}
-
 	// Check pending set in Redis
 	if pending, err := crawler.checkRedisSet("crawler:pending_urls", url); err != nil {
 		return false, fmt.Errorf("failed checking pending_urls in Redis: %w", err)
@@ -123,7 +119,6 @@ func (crawler *Crawler) isURLVisited(url string) (bool, error) {
 		crawler.cacheAndLogFound(url, "pending")
 		return true, nil
 	}
-
 	log.WithField("url", url).Trace("URL not found in Redis; treated as new")
 	return false, nil
 }
