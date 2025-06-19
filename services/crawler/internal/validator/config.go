@@ -1,23 +1,26 @@
 package validator
 
-import "time"
+import (
+	// Stdlib
+	"time"
+)
 
 // SetDNSCacheTimeout sets how long DNS results should be cached.
-func (v *URLValidator) SetDNSCacheTimeout(timeout time.Duration) {
-	v.dnsCacheTimeout = timeout
+func (uv *URLValidator) SetDNSCacheTimeout(timeout time.Duration) {
+	uv.dnsCacheTimeout = timeout
 }
 
 // SetAllowPrivateIPs controls whether URLs resolving to private IPs are considered valid.
-func (v *URLValidator) SetAllowPrivateIPs(allow bool) {
-	v.allowPrivateIPs = allow
+func (uv *URLValidator) SetAllowPrivateIPs(allow bool) {
+	uv.allowPrivateIPs = allow
 }
 
 // SetAllowLoopback controls whether loopback addresses (e.g., 127.0.0.1) are allowed.
-func (v *URLValidator) SetAllowLoopback(allow bool) {
-	v.allowLoopback = allow
+func (uv *URLValidator) SetAllowLoopback(allow bool) {
+	uv.allowLoopback = allow
 }
 
 // SetSkipDNSCheck toggles whether to bypass DNS validation entirely.
-func (v *URLValidator) SetSkipDNSCheck(skip bool) {
-	v.skipDNSCheck = skip
+func (uv *URLValidator) SetSkipDNSCheck(skip bool) {
+	uv.skipDNSCheck = skip
 }

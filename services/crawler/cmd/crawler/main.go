@@ -1,29 +1,30 @@
 package main
 
 import (
+	// StdLib
 	"context"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	// Third-party
 	"github.com/sirupsen/logrus"
+
+	// Internal modules
 	"github.com/sneakyhydra/sneakdex/crawler/internal/config"
 	"github.com/sneakyhydra/sneakdex/crawler/internal/crawler"
 	"github.com/sneakyhydra/sneakdex/crawler/internal/logger"
+	"github.com/sneakyhydra/sneakdex/crawler/internal/monitor"
 )
 
 const (
-	// AppName is the application identifier used in logs and error messages
-	AppName = "Project Sneakdex Crawler"
 	// ShutdownTimeout defines how long to wait for graceful shutdown before forcing exit
 	ShutdownTimeout = 30 * time.Second
 )
 
-// exitCode represents different exit conditions for better debugging
+// exitCode represents different exit conditions
 type exitCode int
 
 const (
@@ -40,99 +41,56 @@ func main() {
 }
 
 // run contains the main application logic and returns an exit code
-// This separation makes the code more testable and provides cleaner error handling
 func run() exitCode {
-	fmt.Printf("%s starting...\n", AppName)
+	logrus.Info("Sneakdex Crawler Starting...")
 
-	pprofCtx, pprofCancel := context.WithCancel(context.Background())
-	defer pprofCancel()
-
-	go func() {
-		server := &http.Server{Addr: "0.0.0.0:6060"}
-
-		go func() {
-			<-pprofCtx.Done()
-			logrus.Info("Shutting down pprof server")
-			if err := server.Shutdown(context.Background()); err != nil {
-				logrus.WithError(err).Error("Failed to shutdown pprof server")
-			}
-		}()
-
-		logrus.Info("Starting pprof server at :6060")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logrus.WithError(err).Error("pprof server failed unexpectedly")
-		}
-	}()
+	var cfg *config.Config
+	var log *logrus.Logger
+	var err error
 
 	// Initialize configuration
-	if err := initializeConfig(); err != nil {
-		fmt.Printf("Fatal: Failed to initialize configuration: %v\n", err)
+	if cfg, err = config.InitializeConfig(); err != nil {
+		logrus.WithError(err).Fatal("Failed to initialize configuration")
 		return exitConfigError
 	}
 
 	// Initialize logger early to enable structured logging for subsequent operations
-	if err := initializeLogger(); err != nil {
-		fmt.Printf("Fatal: Failed to initialize logger: %v\n", err)
+	if log, err = logger.NewLogger(cfg.LogLevel); err != nil {
+		logrus.WithError(err).Fatal("Failed to initialize logger")
 		return exitLoggerError
 	}
 
-	log := logger.GetLogger()
 	if log == nil {
-		fmt.Println("Logger is not initialized")
+		logrus.Fatal("Logger is not initialized")
 		return exitLoggerError
 	}
-	log.Info("Configuration and logging initialized successfully")
+	logrus.Info("Configuration and logging initialized successfully")
 
 	// Create crawler instance with proper error context
-	crawlerInstance, err := createCrawler()
+	crawlerInstance, err := crawler.New(cfg, log)
 	if err != nil {
-		log.WithError(err).Fatal("Failed to create crawler instance")
+		logrus.WithError(err).Fatal("Failed to create crawler instance")
 		return exitCrawlerCreationError
 	}
 
-	log.Info("Crawler instance created successfully")
+	logrus.Info("Crawler instance created successfully")
+
+	// Start the monitor server in a new goroutine.
+	// This server provides insights into the crawler's operational status.
+	monitorServer := monitor.InitializeMonitorServer(crawlerInstance)
+	monitorServer.Start()
 
 	// Start crawler and handle shutdown signals
-	if code := runCrawlerWithShutdown(crawlerInstance, log); code != exitSuccess {
+	if code := runCrawlerWithShutdown(crawlerInstance); code != exitSuccess {
 		return code
 	}
 
-	log.Info("Application shutdown completed successfully")
+	logrus.Info("Application shutdown completed successfully")
 	return exitSuccess
 }
 
-// initializeConfig wraps config initialization with better error context
-func initializeConfig() error {
-	if err := config.InitializeConfig(); err != nil {
-		return fmt.Errorf("configuration initialization failed: %w", err)
-	}
-	return nil
-}
-
-// initializeLogger wraps logger initialization with better error context
-func initializeLogger() error {
-	if err := logger.InitializeLogger(); err != nil {
-		return fmt.Errorf("logger initialization failed: %w", err)
-	}
-	return nil
-}
-
-// createCrawler creates and validates the crawler instance
-func createCrawler() (*crawler.Crawler, error) {
-	if err := crawler.New(); err != nil {
-		return nil, fmt.Errorf("crawler instantiation failed: %w", err)
-	}
-
-	crawlerInstance := crawler.GetCrawler()
-	if crawlerInstance == nil {
-		return nil, fmt.Errorf("crawler instance is nil after creation")
-	}
-
-	return crawlerInstance, nil
-}
-
 // runCrawlerWithShutdown handles the main crawler execution and graceful shutdown
-func runCrawlerWithShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logger) exitCode {
+func runCrawlerWithShutdown(crawlerInstance *crawler.Crawler) exitCode {
 	// Set up OS signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
@@ -143,7 +101,7 @@ func runCrawlerWithShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logger
 
 	// Start the crawler in a separate goroutine
 	go func() {
-		log.Info("Starting crawler main process")
+		logrus.Info("Starting crawler main process")
 		crawlerDone <- crawlerInstance.Start()
 	}()
 
@@ -154,30 +112,30 @@ func runCrawlerWithShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logger
 	select {
 	case sig := <-sigChan:
 		shutdownReason = fmt.Sprintf("received OS signal: %v", sig)
-		log.WithField("signal", sig.String()).Warn("Shutdown signal received")
+		logrus.WithField("signal", sig.String()).Warn("Shutdown signal received")
 
 		// Use select with timeout to avoid indefinite block
 		select {
 		case <-crawlerDone:
 		case <-time.After(ShutdownTimeout / 3):
-			log.Warn("Timeout draining crawlerDone; proceeding to shutdown")
+			logrus.Warn("Timeout draining crawlerDone; proceeding to shutdown")
 		}
 
 	case crawlerErr = <-crawlerDone:
 		if crawlerErr != nil {
 			shutdownReason = "crawler encountered fatal error"
-			log.WithError(crawlerErr).Error("Crawler terminated with error")
+			logrus.WithError(crawlerErr).Error("Crawler terminated with error")
 		} else {
 			shutdownReason = "crawler completed successfully"
-			log.Info("Crawler completed all tasks successfully")
+			logrus.Info("Crawler completed all tasks successfully")
 		}
 	}
 
 	// Perform graceful shutdown
-	log.WithField("reason", shutdownReason).Info("Initiating graceful shutdown")
+	logrus.WithField("reason", shutdownReason).Info("Initiating graceful shutdown")
 
-	if err := performGracefulShutdown(crawlerInstance, log); err != nil {
-		log.WithError(err).Error("Graceful shutdown encountered errors")
+	if err := performGracefulShutdown(crawlerInstance); err != nil {
+		logrus.WithError(err).Error("Graceful shutdown encountered errors")
 		return exitShutdownError
 	}
 
@@ -190,7 +148,7 @@ func runCrawlerWithShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logger
 }
 
 // performGracefulShutdown handles the shutdown process with timeout
-func performGracefulShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logger) error {
+func performGracefulShutdown(crawlerInstance *crawler.Crawler) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 	defer cancel()
 
@@ -200,7 +158,7 @@ func performGracefulShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logge
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.WithField("panic", r).Error("Panic occurred during shutdown")
+				logrus.WithField("panic", r).Error("Panic occurred during shutdown")
 			}
 		}()
 
@@ -210,11 +168,11 @@ func performGracefulShutdown(crawlerInstance *crawler.Crawler, log *logrus.Logge
 
 	select {
 	case <-shutdownDone:
-		log.Info("Graceful shutdown completed successfully")
+		logrus.Info("Graceful shutdown completed successfully")
 		return nil
 
 	case <-shutdownCtx.Done():
-		log.Error("Shutdown timeout exceeded, forcing exit")
+		logrus.Error("Shutdown timeout exceeded, forcing exit")
 		return fmt.Errorf("shutdown timeout exceeded (%v)", ShutdownTimeout)
 	}
 }

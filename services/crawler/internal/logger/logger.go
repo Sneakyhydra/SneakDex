@@ -1,45 +1,25 @@
 package logger
 
 import (
+	// Stdlib
 	"fmt"
 	"os"
-	"sync"
 
+	// Third-party
 	"github.com/sirupsen/logrus"
-	"github.com/sneakyhydra/sneakdex/crawler/internal/config"
 )
 
-var (
-	log      *logrus.Logger
-	initOnce sync.Once
-)
+// NewLogger sets up the global logrus logger with config-defined log level and JSON formatting.
+func NewLogger(logLevel string) (*logrus.Logger, error) {
+	log := logrus.New()
 
-// InitializeLogger sets up the global logrus logger with config-defined log level and JSON formatting.
-// It ensures logger is initialized only once, thread-safely.
-func InitializeLogger() error {
-	var initErr error
-	initOnce.Do(func() {
-		newlog := logrus.New()
-
-		level, err := logrus.ParseLevel(config.GetConfig().LogLevel)
-		if err != nil {
-			initErr = fmt.Errorf("invalid log level: %w", err)
-			return
-		}
-
-		newlog.SetLevel(level)
-		newlog.SetFormatter(&logrus.JSONFormatter{})
-		newlog.SetOutput(os.Stdout)
-
-		log = newlog
-	})
-	return initErr
-}
-
-// GetLogger returns the initialized logger. Panics if not initialized.
-func GetLogger() *logrus.Logger {
-	if log == nil {
-		panic("logger not initialized: call InitializeLogger() first")
+	level, err := logrus.ParseLevel(logLevel)
+	if err != nil {
+		return nil, fmt.Errorf("invalid log level '%s': %w", logLevel, err)
 	}
-	return log
+
+	log.SetLevel(level)
+	log.SetFormatter(&logrus.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	return log, nil
 }

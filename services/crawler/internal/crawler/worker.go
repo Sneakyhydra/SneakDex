@@ -1,12 +1,15 @@
 package crawler
 
-import "sync/atomic"
+import (
+	// Stdlib
+	"sync/atomic"
+)
 
 // IncrementInFlightPages increments the count of in-flight pages being processed
-func (crawler *Crawler) IncrementInFlightPages() { atomic.AddInt64(&crawler.inFlightPages, 1) }
+func (c *Crawler) IncrementInFlightPages() { atomic.AddInt64(&c.InFlightPages, 1) }
 
 // DecrementInFlightPages decrements the count of in-flight pages being processed
-func (crawler *Crawler) DecrementInFlightPages() { atomic.AddInt64(&crawler.inFlightPages, -1) }
+func (c *Crawler) DecrementInFlightPages() { atomic.AddInt64(&c.InFlightPages, -1) }
 
 // GetInFlightPages returns the current number of in-flight pages being processed
-func (crawler *Crawler) GetInFlightPages() int64 { return atomic.LoadInt64(&crawler.inFlightPages) }
+func (c *Crawler) GetInFlightPages() int64 { return atomic.LoadInt64(&c.InFlightPages) }

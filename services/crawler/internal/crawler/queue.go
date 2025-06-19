@@ -1,28 +1,23 @@
 package crawler
 
 import (
+	// Stdlib
 	"sync/atomic"
 	"time"
 
+	// Third-party
 	"github.com/gocolly/colly/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
-
-	"github.com/sneakyhydra/sneakdex/crawler/internal/config"
-	"github.com/sneakyhydra/sneakdex/crawler/internal/logger"
+	// Internal modules
 )
 
 // feedCollyFromRedisQueue continuously feeds URLs from the Redis pending queue to the Colly collector.
-func (crawler *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
-	log := logger.GetLogger()
-	cfg := config.GetConfig()
+func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
+	defer c.Wg.Done() // Mark this goroutine as done when exiting
+	c.Log.Info("Starting Redis queue feeder goroutine")
 
-	defer wg.Done() // Mark this goroutine as done when exiting
-	log.Info("Starting Redis queue feeder goroutine")
-
-	ticker := time.NewTicker(200 * time.Millisecond)
-	waitTicker := time.NewTicker(2 * time.Minute)
-	defer ticker.Stop()
+	waitTicker := time.NewTicker(1 * time.Minute)
 	defer waitTicker.Stop()
 
 	emptyQueueChecks := 0
@@ -30,64 +25,57 @@ func (crawler *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 
 	for {
 		select {
-		case <-ctx.Done():
-			log.Info("Redis queue feeder stopping due to context cancellation")
+		case <-c.Ctx.Done():
+			c.Log.Info("Redis queue feeder stopping due to context cancellation")
 			collector.Wait()
 			return
 
 		case <-waitTicker.C:
 			collector.Wait()
 
-		case <-ticker.C:
+		default:
 			// Check if page processing limit is reached
-			if atomic.LoadInt64(&crawler.stats.PagesProcessed) >= cfg.MaxPages {
-				log.Debug("Max page limit reached, stopping Redis queue feeder")
+			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
+				c.Log.Debug("Max page limit reached, stopping Redis queue feeder")
 				return
 			}
 
 			// Pop a URL from Redis pending queue
-			url, err := crawler.redisClient.SPop(ctx, "crawler:pending_urls").Result()
+			url, err := c.RemoveFromPending()
 			if err == redis.Nil {
 				emptyQueueChecks++
-				log.WithField("empty_checks", emptyQueueChecks).Trace("No URLs in Redis pending queue")
+				c.Log.WithField("empty_checks", emptyQueueChecks).Trace("No URLs in Redis pending queue")
 
 				// Stop if queue is empty for prolonged checks and no active work remains
 				if emptyQueueChecks >= maxEmptyChecks {
-					if atomic.LoadInt64(&crawler.stats.PagesProcessed) >= cfg.MaxPages || ctx.Err() != nil || crawler.GetInFlightPages() == 0 {
-						log.Info("Queue is consistently empty and termination condition met. Exiting feeder.")
+					if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages || c.GetInFlightPages() == 0 {
+						c.Log.Info("Queue is consistently empty and termination condition met. Exiting feeder.")
 						return
 					}
-					log.Debug("Queue still empty, but conditions not met to terminate. Retrying...")
+					c.Log.Debug("Queue still empty, but conditions not met to terminate. Retrying...")
 				}
 				continue
 			} else if err != nil {
-				log.WithError(err).Error("Redis error while popping URL from pending queue")
-				crawler.stats.IncrementRedisFailed()
+				c.Log.WithError(err).Error("Redis error while popping URL from pending queue")
+				c.Stats.IncrementRedisErrored()
 				continue
 			}
 
 			emptyQueueChecks = 0 // Reset counter on successful fetch
-			log.WithField("url", url).Debug("Dispatching URL from Redis queue to Colly")
+			c.Log.WithField("url", url).Debug("Dispatching URL from Redis queue to Colly")
 
 			// Visit URL using Colly
 			if err := collector.Visit(url); err != nil {
-				log.WithFields(logrus.Fields{
+				c.Log.WithFields(logrus.Fields{
 					"url":   url,
 					"error": err,
 				}).Warn("Colly failed to initiate visit, marking URL as visited to avoid requeue")
 
-				if _, redisErr := crawler.redisClient.SAdd(ctx, "crawler:visited_urls", url).Result(); redisErr != nil {
-					log.WithFields(logrus.Fields{
-						"url":   url,
-						"error": redisErr,
-					}).Error("Failed to mark URL as visited after failed Colly initiation")
-					crawler.stats.IncrementRedisFailed()
-				}
-
-				crawler.stats.IncrementPagesFailed()
+				c.MarkVisited(url)
+				c.Stats.IncrementPagesFailed()
 			}
 
-			if crawler.GetInFlightPages() == 0 {
+			if c.GetInFlightPages() == 0 {
 				collector.Wait()
 			}
 		}

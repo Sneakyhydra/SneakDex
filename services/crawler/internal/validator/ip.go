@@ -1,9 +1,11 @@
 package validator
 
 import (
+	// Stdlib
 	"net"
 	"time"
 
+	// Third-party
 	"github.com/sirupsen/logrus"
 )
 
@@ -16,32 +18,32 @@ type DNSResult struct {
 
 // isIPValid resolves a host to IPs (with caching) and checks if they are allowed.
 // It also supports direct IP input (bypassing DNS lookup).
-func (urlValidator *URLValidator) isIPValid(host string) bool {
+func (uv *URLValidator) isIPValid(host string) bool {
 	// Case 1: Host is a raw IP address
 	if ip := net.ParseIP(host); ip != nil {
-		return urlValidator.isIPAllowed(ip)
+		return uv.isIPAllowed(ip)
 	}
 
 	// Case 2: Check DNS cache for host
-	if cached, exists := urlValidator.dnsCache.Load(host); exists {
+	if cached, exists := uv.dnsCache.Load(host); exists {
 		if result, ok := cached.(DNSResult); ok {
-			if time.Since(result.Timestamp) < urlValidator.dnsCacheTimeout {
+			if time.Since(result.Timestamp) < uv.dnsCacheTimeout {
 				if !result.Valid {
-					urlValidator.log.WithFields(logrus.Fields{
+					uv.log.WithFields(logrus.Fields{
 						"host": host,
 					}).Debug("Using cached failed DNS result")
 					return false
 				}
 				// Validate cached IPs
-				return urlValidator.areIPsAllowed(result.IPs)
+				return uv.areIPsAllowed(result.IPs)
 			}
 			// Expired cache entry will be overwritten below
 		} else {
 			// Defensive programming: remove bad cache data
-			urlValidator.log.WithFields(logrus.Fields{
+			uv.log.WithFields(logrus.Fields{
 				"host": host,
 			}).Warn("Invalid DNS cache entry; ignoring and refreshing")
-			urlValidator.dnsCache.Delete(host)
+			uv.dnsCache.Delete(host)
 		}
 	}
 
@@ -54,23 +56,23 @@ func (urlValidator *URLValidator) isIPValid(host string) bool {
 		Timestamp: time.Now(),
 		Valid:     err == nil,
 	}
-	urlValidator.dnsCache.Store(host, dnsResult)
+	uv.dnsCache.Store(host, dnsResult)
 
 	if err != nil {
-		urlValidator.log.WithFields(logrus.Fields{
+		uv.log.WithFields(logrus.Fields{
 			"host":  host,
 			"error": err,
 		}).Debug("DNS resolution failed")
 		return false
 	}
 
-	return urlValidator.areIPsAllowed(ips)
+	return uv.areIPsAllowed(ips)
 }
 
 // areIPsAllowed returns true if any of the resolved IPs are allowed.
-func (urlValidator *URLValidator) areIPsAllowed(ips []net.IP) bool {
+func (uv *URLValidator) areIPsAllowed(ips []net.IP) bool {
 	for _, ip := range ips {
-		if urlValidator.isIPAllowed(ip) {
+		if uv.isIPAllowed(ip) {
 			return true
 		}
 	}
@@ -78,20 +80,20 @@ func (urlValidator *URLValidator) areIPsAllowed(ips []net.IP) bool {
 }
 
 // isIPAllowed checks a single IP against configured rules for loopback and private ranges.
-func (urlValidator *URLValidator) isIPAllowed(ip net.IP) bool {
+func (uv *URLValidator) isIPAllowed(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
 
-	if !urlValidator.allowLoopback && ip.IsLoopback() {
-		urlValidator.log.WithFields(logrus.Fields{
+	if !uv.allowLoopback && ip.IsLoopback() {
+		uv.log.WithFields(logrus.Fields{
 			"ip": ip.String(),
 		}).Debug("Blocked loopback IP")
 		return false
 	}
 
-	if !urlValidator.allowPrivateIPs && ip.IsPrivate() {
-		urlValidator.log.WithFields(logrus.Fields{
+	if !uv.allowPrivateIPs && ip.IsPrivate() {
+		uv.log.WithFields(logrus.Fields{
 			"ip": ip.String(),
 		}).Debug("Blocked private IP")
 		return false

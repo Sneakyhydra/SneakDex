@@ -1,12 +1,33 @@
 package metrics
 
-import "sync/atomic"
+import (
+	// StdLib
+	"sync/atomic"
+)
 
-// IncrementMetrics provides atomic increment methods for crawler metrics
-func (metric *Metrics) IncrementPagesProcessed()  { atomic.AddInt64(&metric.PagesProcessed, 1) }
-func (metric *Metrics) IncrementPagesSuccessful() { atomic.AddInt64(&metric.PagesSuccessful, 1) }
-func (metric *Metrics) IncrementPagesFailed()     { atomic.AddInt64(&metric.PagesFailed, 1) }
-func (metric *Metrics) IncrementKafkaSuccessful() { atomic.AddInt64(&metric.KafkaSuccessful, 1) }
-func (metric *Metrics) IncrementKafkaFailed()     { atomic.AddInt64(&metric.KafkaFailed, 1) }
-func (metric *Metrics) IncrementRedisSuccessful() { atomic.AddInt64(&metric.RedisSuccessful, 1) }
-func (metric *Metrics) IncrementRedisFailed()     { atomic.AddInt64(&metric.RedisFailed, 1) }
+// Increment total number of pages processed by the crawler.
+func (m *Metrics) IncrementPagesProcessed() { atomic.AddInt64(&m.PagesProcessed, 1) }
+
+// Increment pages processed successfully.
+func (m *Metrics) IncrementPagesSuccessful() { atomic.AddInt64(&m.PagesSuccessful, 1) }
+
+// Increment pages that failed to process.
+func (m *Metrics) IncrementPagesFailed() { atomic.AddInt64(&m.PagesFailed, 1) }
+
+// Increment pages that were successfully sent to Kafka.
+func (m *Metrics) IncrementKafkaSuccessful() { atomic.AddInt64(&m.KafkaSuccessful, 1) }
+
+// Increment pages that failed to send to Kafka due to conditions (e.g., msg too large).
+func (m *Metrics) IncrementKafkaFailed() { atomic.AddInt64(&m.KafkaFailed, 1) }
+
+// Increment pages that errored while sending to Kafka (e.g., connection issues).
+func (m *Metrics) IncrementKafkaErrored() { atomic.AddInt64(&m.KafkaErrored, 1) }
+
+// Increment successful Redis checks or operations.
+func (m *Metrics) IncrementRedisSuccessful() { atomic.AddInt64(&m.RedisSuccessful, 1) }
+
+// Increment Redis operations that failed (e.g., not found in queue).
+func (m *Metrics) IncrementRedisFailed() { atomic.AddInt64(&m.RedisFailed, 1) }
+
+// Increment Redis operations that errored (e.g., connection issues).
+func (m *Metrics) IncrementRedisErrored() { atomic.AddInt64(&m.RedisErrored, 1) }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	// Stdlib
 	"fmt"
 	"net/url"
 	"regexp"
@@ -68,12 +69,13 @@ func (c *Config) validateKafka() error {
 	}
 
 	// Validate topic name follows Kafka naming conventions
-	if matched, _ := regexp.MatchString(`^[a-zA-Z0-9._-]+$`, c.KafkaTopic); !matched {
+	topicPattern := `^[a-zA-Z0-9._-]+$`
+	if matched, _ := regexp.MatchString(topicPattern, c.KafkaTopic); !matched {
 		return &ConfigError{
 			Field:   "KAFKA_TOPIC_HTML",
 			Value:   c.KafkaTopic,
-			Reason:  "must contain only alphanumeric characters, dots, hyphens, and underscores",
-			Example: "raw-html-data",
+			Reason:  "must consist of alphanumeric characters, dots, underscores, or hyphens",
+			Example: "raw-html",
 		}
 	}
 
@@ -99,11 +101,11 @@ func (c *Config) validateRedis() error {
 		}
 	}
 
-	if c.RedisPort < 1 || c.RedisPort > 65535 {
+	if c.RedisPort < 1024 || c.RedisPort > 65535 {
 		return &ConfigError{
 			Field:   "REDIS_PORT",
 			Value:   fmt.Sprintf("%d", c.RedisPort),
-			Reason:  "must be a valid port number (1-65535)",
+			Reason:  "must be between 1024 and 65535 (avoid privileged ports)",
 			Example: "6379",
 		}
 	}
@@ -166,11 +168,11 @@ func (c *Config) validateCrawling() error {
 		}
 	}
 
-	if c.CrawlDepth < 1 || c.CrawlDepth > 20 {
+	if c.CrawlDepth < 1 || c.CrawlDepth > 10 {
 		return &ConfigError{
 			Field:   "CRAWL_DEPTH",
 			Value:   fmt.Sprintf("%d", c.CrawlDepth),
-			Reason:  "must be between 1 and 20 to prevent infinite crawling",
+			Reason:  "must be between 1 and 10 to prevent infinite crawling",
 			Example: "3",
 		}
 	}
@@ -250,14 +252,14 @@ func (c *Config) validateApplication() error {
 		return &ConfigError{
 			Field:   "USER_AGENT",
 			Reason:  "cannot be empty for responsible web crawling",
-			Example: "SneakdexCrawler/1.0",
+			Example: "Sneakdex/1.0",
 		}
 	}
 
-	if c.HealthCheckPort < 1024 || c.HealthCheckPort > 65535 {
+	if c.MonitorPort < 1024 || c.MonitorPort > 65535 {
 		return &ConfigError{
-			Field:   "HEALTH_CHECK_PORT",
-			Value:   fmt.Sprintf("%d", c.HealthCheckPort),
+			Field:   "MONITOR_PORT",
+			Value:   fmt.Sprintf("%d", c.MonitorPort),
 			Reason:  "must be between 1024 and 65535 (avoid privileged ports)",
 			Example: "8080",
 		}
