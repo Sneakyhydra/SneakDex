@@ -31,7 +31,7 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 			return
 
 		case <-waitTicker.C:
-			collector.Wait()
+			// Periodic check without blocking
 
 		default:
 			// Check if page processing limit is reached
@@ -40,11 +40,16 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 				return
 			}
 
-			// Pop a URL from Redis pending queue
+			// Check concurrency limits before processing
+			if c.GetInFlightPages() >= int64(c.Cfg.MaxConcurrency) {
+				time.Sleep(1 * time.Millisecond) // Brief pause if at capacity
+				continue
+			}
+			
 			url, err := c.RemoveFromPending()
 			if err == redis.Nil {
 				emptyQueueChecks++
-				c.Log.WithField("empty_checks", emptyQueueChecks).Trace("No URLs in Redis pending queue")
+				c.Log.WithField("empty_checks", emptyQueueChecks).Debug("No URLs in Redis pending queue")
 
 				// Stop if queue is empty for prolonged checks and no active work remains
 				if emptyQueueChecks >= maxEmptyChecks {
@@ -64,7 +69,7 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 			emptyQueueChecks = 0 // Reset counter on successful fetch
 			c.Log.WithField("url", url).Debug("Dispatching URL from Redis queue to Colly")
 
-			// Visit URL using Colly
+			// Visit URL using Colly (non-blocking due to Colly's internal concurrency)
 			if err := collector.Visit(url); err != nil {
 				c.Log.WithFields(logrus.Fields{
 					"url":   url,
@@ -74,10 +79,8 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 				c.MarkVisited(url)
 				c.Stats.IncrementPagesFailed()
 			}
-
-			if c.GetInFlightPages() == 0 {
-				collector.Wait()
-			}
+			
+			// No delay - process URLs as fast as possible
 		}
 	}
 }

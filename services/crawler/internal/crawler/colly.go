@@ -16,7 +16,6 @@ import (
 func (c *Crawler) setupCollyCollector() *colly.Collector {
 	collector := c.createBaseCollector()
 	c.setRequestHandler(collector)
-	c.setHTMLHandler(collector)
 	c.setLinkHandler(collector)
 	c.setErrorHandler(collector)
 	c.setResponseHandler(collector)
@@ -28,7 +27,6 @@ func (c *Crawler) setupCollyCollector() *colly.Collector {
 func (c *Crawler) createBaseCollector() *colly.Collector {
 	options := []colly.CollectorOption{
 		colly.MaxDepth(c.Cfg.CrawlDepth),
-		colly.Async(true),
 		colly.UserAgent(c.Cfg.UserAgent),
 		colly.ParseHTTPErrorResponse(),
 		colly.DetectCharset(),
@@ -94,76 +92,11 @@ func (c *Crawler) setRequestHandler(collector *colly.Collector) {
 			r.Headers.Set("Accept-Encoding", "gzip, deflate")
 			r.Headers.Set("DNT", "1")
 			r.Headers.Set("Connection", "keep-alive")
+			r.Headers.Set("Keep-Alive", "timeout=30, max=100")
 			r.Headers.Set("Upgrade-Insecure-Requests", "1")
 
 			c.IncrementInFlightPages()
 			c.Log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Visiting URL")
-		}
-
-	})
-}
-
-// setHTMLHandler allows us to process a HTML response
-func (c *Crawler) setHTMLHandler(collector *colly.Collector) {
-	collector.OnHTML("html", func(e *colly.HTMLElement) {
-		defer c.DecrementInFlightPages()
-
-		select {
-		case <-c.Ctx.Done():
-			c.Log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("HTML processing skipped due to shutdown")
-			return
-
-		default:
-			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
-				c.Log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Max pages limit reached, stopping HTML processing")
-				select {
-				case <-c.Ctx.Done():
-					c.Log.Debug("Context done, stopping further processing")
-				default:
-					c.CtxCancel() // Cancel the context to stop further processing
-					c.Log.Debug("Context cancelled due to MaxPages limit")
-				}
-				return
-			}
-
-			c.Stats.IncrementPagesProcessed()
-			url := e.Request.URL.String()
-			html, err := e.DOM.Html()
-			if err != nil {
-				c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to extract HTML")
-				c.Stats.IncrementPagesFailed()
-				c.MarkVisited(url) // Mark as visited even if HTML extraction failed, so we don't retry immediately
-				return
-			}
-
-			// Send the HTML content to Kafka
-			if retry, err := c.sendToKafka(url, html); err != nil {
-				if retry {
-					if exists, err := c.isURLRequeued(url); exists {
-						c.Log.WithFields(logrus.Fields{"url": url}).Trace("URL already requeued once. Will be marked as visited")
-						c.RemoveFromRequeuedLocal(url)
-						c.RemoveFromRequeued(url)
-					} else {
-						// Re-queue URL instead of marking as visited
-						c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Retriable error occurred, requeuing URL")
-
-						c.AddToPending(url)
-						c.AddToRequeued(url)
-						c.AddToRequeuedLocal(url)
-						return
-					}
-				}
-
-				c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to send to Kafka")
-				c.Stats.IncrementPagesFailed()
-				// IMPORTANT: Mark as visited even if sending to Kafka fails
-				c.MarkVisited(url) // This prevents immediate retries of the same URL
-				return
-			}
-
-			c.Stats.IncrementPagesSuccessful()
-			c.Log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully and enqueued to Kafka.")
-			c.MarkVisited(url)
 		}
 
 	})
@@ -181,8 +114,29 @@ func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 			}
 
 			link := e.Attr("href")
-			if link == "" || strings.HasPrefix(link, "javascript:") ||
-				strings.HasPrefix(link, "mailto:") || strings.HasPrefix(link, "tel:") || strings.Contains(link, "#") {
+			// Fast rejection filters
+			if link == "" || len(link) > 2000 {
+				return
+			}
+			// Check first character for quick rejections
+			switch link[0] {
+			case '#', '?': // Fragment or query only
+				return
+			case 'j': // javascript:
+				if strings.HasPrefix(link, "javascript:") {
+					return
+				}
+			case 'm': // mailto:
+				if strings.HasPrefix(link, "mailto:") {
+					return
+				}
+			case 't': // tel:
+				if strings.HasPrefix(link, "tel:") {
+					return
+				}
+			}
+			// Check for fragments (slower but necessary)
+			if strings.Contains(link, "#") {
 				return
 			}
 
@@ -194,10 +148,7 @@ func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 
 			visited, err := c.isURLSeen(normalizedURL)
 			if err != nil || visited {
-				if err != nil {
-					c.Log.WithFields(logrus.Fields{"url": normalizedURL, "error": err}).Error("Error checking if URL is visited")
-				}
-				return
+				return // Skip error logging for performance
 			}
 
 			c.AddToPending(normalizedURL)
@@ -233,12 +184,66 @@ func (c *Crawler) setErrorHandler(collector *colly.Collector) {
 
 func (c *Crawler) setResponseHandler(collector *colly.Collector) {
 	collector.OnResponse(func(r *colly.Response) {
+		defer c.DecrementInFlightPages()
+
 		if !strings.Contains(r.Headers.Get("Content-Type"), "text/html") {
 			c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("Non-HTML content received, skipping")
 			c.MarkVisited(r.Request.URL.String())
-			c.DecrementInFlightPages()
+			// Don't call DecrementInFlightPages here - defer will handle it
 			r.Request.Abort()
 			return
+		}
+
+		select {
+		case <-c.Ctx.Done():
+			c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("HTML processing skipped due to shutdown")
+			return
+
+		default:
+			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
+				c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("Max pages limit reached, stopping HTML processing")
+				select {
+				case <-c.Ctx.Done():
+					c.Log.Debug("Context done, stopping further processing")
+				default:
+					c.CtxCancel() // Cancel the context to stop further processing
+					c.Log.Debug("Context cancelled due to MaxPages limit")
+				}
+				return
+			}
+
+			c.Stats.IncrementPagesProcessed()
+			url := r.Request.URL.String()
+			html := string(r.Body)
+
+			// Send the HTML content to Kafka
+			if retry, err := c.sendToKafka(url, html); err != nil {
+				if retry {
+					if exists, err := c.isURLRequeued(url); exists {
+						c.Log.WithFields(logrus.Fields{"url": url}).Trace("URL already requeued once. Will be marked as visited")
+						c.RemoveFromRequeuedLocal(url)
+						c.RemoveFromRequeued(url)
+					} else {
+						// Re-queue URL instead of marking as visited
+						c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Retriable error occurred, requeuing URL")
+
+						c.AddToPending(url)
+						c.AddToRequeued(url)
+						c.AddToRequeuedLocal(url)
+						return
+					}
+				}
+
+				c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to send to Kafka")
+				c.Stats.IncrementPagesFailed()
+				// IMPORTANT: Mark as visited even if sending to Kafka fails
+				c.MarkVisited(url) // This prevents immediate retries of the same URL
+				return
+			}
+
+			c.Stats.IncrementPagesSuccessful()
+			c.Log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully and enqueued to Kafka.")
+			c.MarkVisited(url)
 		}
 	})
 }

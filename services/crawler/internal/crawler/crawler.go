@@ -26,15 +26,17 @@ type Crawler struct {
 	Cfg *config.Config // Application configuration, loaded from config package.
 	Log *logrus.Logger // Logger instance for structured logging throughout the crawler's operations.
 
-	RedisClient  *redis.Client           // Client for interacting with Redis for URL queue management.
-	Producer     sarama.SyncProducer     // Kafka producer for publishing crawled page data.
-	Stats        *metrics.Metrics        // Metrics collector for tracking crawling statistics.
+	RedisClient   *redis.Client           // Client for interacting with Redis for URL queue management.
+	AsyncProducer sarama.AsyncProducer    // Kafka async producer for publishing crawled page data.
+	Stats         *metrics.Metrics        // Metrics collector for tracking crawling statistics.
 	UrlValidator *validator.URLValidator // URL validator for checking and normalizing URLs.
 
 	Whitelist     []string // List of URL patterns allowed for crawling.
 	Blacklist     []string // List of URL patterns disallowed for crawling.
 	Visited       sync.Map // A concurrent map to keep track of URLs that have been visited or are currently in flight
 	Requeued      sync.Map // A concurrent map to keep track of URLs that have been re-queued due to transient errors.
+	Pending       sync.Map // Local cache for pending URLs to avoid Redis checks
+	SeenLocal     sync.Map // Local cache for any URL we've seen (visited, pending, or rejected)
 	InFlightPages int64    // Track pages currently being processed (consider using a semaphore or channel for more robust control if this becomes complex).
 
 	Ctx           context.Context
@@ -88,7 +90,7 @@ func New(cfg *config.Config, log *logrus.Logger) (*Crawler, error) {
 		ctxCancel() // Trigger context cancellation on failure.
 		return nil, fmt.Errorf("failed to initialize Kafka producer: %w", err)
 	}
-	log.Info("Kafka SyncProducer initialized successfully.")
+	log.Info("Kafka AsyncProducer initialized successfully.")
 
 	// Initialize and configure the URL Validator.
 	// This component is responsible for checking the validity and safety of URLs.
@@ -99,7 +101,7 @@ func New(cfg *config.Config, log *logrus.Logger) (*Crawler, error) {
 	// SetSkipDNSCheck to 'false' means DNS resolution will be performed for each URL.
 	// Setting it to 'true' would skip DNS checks, which is faster but less safe
 	// as it could allow connections to unresolvable or malicious IPs.
-	crawler.UrlValidator.SetSkipDNSCheck(false)
+	crawler.UrlValidator.SetSkipDNSCheck(true)
 	crawler.UrlValidator.SetAllowPrivateIPs(false) // Disallow crawling of private IP addresses.
 	crawler.UrlValidator.SetAllowLoopback(false)   // Disallow crawling of loopback addresses (e.g., 127.0.0.1).
 
@@ -121,7 +123,7 @@ func (c *Crawler) Start() error {
 			"brokers":       c.Cfg.KafkaBrokers,
 			"topic":         c.Cfg.KafkaTopic,
 			"retry_max":     c.Cfg.KafkaRetryMax,
-			"producer_type": "Sync", // Explicitly state producer type
+			"producer_type": "Async", // Explicitly state producer type
 		},
 		"redis_config": logrus.Fields{
 			"host":      c.Cfg.RedisHost,
@@ -165,6 +167,10 @@ func (c *Crawler) Start() error {
 		c.Log.Warn("No start URLs provided in configuration. Crawler will not initiate any crawls.")
 	} else {
 		c.Log.Infof("Attempting to seed Redis with %d start URLs.", len(startURLs))
+		
+		// Pre-populate local cache by loading existing Redis data
+		c.preloadLocalCaches()
+		
 		for _, rawURL := range startURLs {
 			url := strings.TrimSpace(rawURL)
 			if url == "" {
@@ -175,17 +181,6 @@ func (c *Crawler) Start() error {
 			normalizedURL, valid := c.UrlValidator.IsValidURL(url)
 			if !valid {
 				c.Log.WithField("url", normalizedURL).Warn("Skipping invalid start URL.")
-				continue
-			}
-
-			// Check if the URL has already been visited or is pending to avoid duplicates.
-			visitedOrPending, err := c.isURLSeen(url)
-			if err != nil {
-				c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to check start URL status in Redis, skipping.")
-				continue
-			}
-			if visitedOrPending {
-				c.Log.WithFields(logrus.Fields{"url": url}).Info("Start URL already visited or pending, skipping initial queueing.")
 				continue
 			}
 
@@ -270,12 +265,12 @@ func (c *Crawler) Shutdown() {
 		}
 
 		// Close Kafka producer connection.
-		if c.Producer != nil {
-			c.Log.Info("Attempting to close Kafka producer (Sync).")
-			if err := c.Producer.Close(); err != nil {
-				c.Log.WithError(err).Error("Failed to close Kafka SyncProducer.")
+		if c.AsyncProducer != nil {
+			c.Log.Info("Attempting to close Kafka AsyncProducer.")
+			if err := c.AsyncProducer.Close(); err != nil {
+				c.Log.WithError(err).Error("Failed to close Kafka AsyncProducer.")
 			} else {
-				c.Log.Info("Kafka SyncProducer closed successfully.")
+				c.Log.Info("Kafka AsyncProducer closed successfully.")
 			}
 		}
 

@@ -24,12 +24,22 @@ func (ms *monitorServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Basic Kafka check
-	if _, _, err := ms.crawler.Producer.SendMessage(&sarama.ProducerMessage{
+	// Basic Kafka check - verify AsyncProducer is running
+	if ms.crawler.AsyncProducer == nil {
+		http.Error(w, "Kafka AsyncProducer not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	
+	// Try to send a health check message (non-blocking)
+	select {
+	case ms.crawler.AsyncProducer.Input() <- &sarama.ProducerMessage{
 		Topic: "health-check",
 		Value: sarama.StringEncoder("health-check"),
-	}); err != nil {
-		http.Error(w, fmt.Sprintf("Kafka unhealthy: %v", err), http.StatusServiceUnavailable)
+	}:
+		// Message queued successfully
+	case <-time.After(100 * time.Millisecond):
+		// Channel is full or producer is not responsive
+		http.Error(w, "Kafka AsyncProducer channel full or unresponsive", http.StatusServiceUnavailable)
 		return
 	}
 

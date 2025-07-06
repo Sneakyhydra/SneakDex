@@ -84,25 +84,45 @@ func (c *Crawler) checkRedisSet(setKey, url string) (bool, error) {
 }
 
 func (c *Crawler) isURLSeen(url string) (bool, error) {
-	// Check in-memory local cache first
-	if _, exists := c.Visited.Load(url); exists {
-		c.Log.WithField("url", url).Trace("URL found in local cache")
+	// Check comprehensive local cache first - this should catch 95%+ of lookups
+	if _, exists := c.SeenLocal.Load(url); exists {
 		return true, nil
 	}
-	// Check visited set in Redis
-	if visited, err := c.checkRedisSet("crawler:visited_urls", url); err != nil {
-		return false, fmt.Errorf("failed checking visited_urls in Redis: %w", err)
-	} else if visited {
+	
+	// For URLs not in local cache, do a quick Redis check (but only once per URL)
+	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
+	defer cancel()
+	
+	// Use pipeline to check both sets in a single round trip
+	pipe := c.RedisClient.Pipeline()
+	visitedCmd := pipe.SIsMember(ctx, "crawler:visited_urls", url)
+	pendingCmd := pipe.SIsMember(ctx, "crawler:pending_urls_set", url)
+	
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		c.Stats.IncrementRedisErrored()
+		// On Redis error, mark as seen locally and assume it's new
+		c.SeenLocal.Store(url, struct{}{})
+		return false, nil
+	}
+	
+	// Mark as seen locally to prevent future Redis checks
+	c.SeenLocal.Store(url, struct{}{})
+	
+	visited, err := visitedCmd.Result()
+	if err == nil && visited {
 		c.AddToVisitedLocal(url)
+		c.Stats.IncrementRedisSuccessful()
 		return true, nil
 	}
-	// Check pending set in Redis
-	if pending, err := c.checkRedisSet("crawler:pending_urls_set", url); err != nil {
-		return false, fmt.Errorf("failed checking pending_urls_set in Redis: %w", err)
-	} else if pending {
+	
+	pending, err := pendingCmd.Result()
+	if err == nil && pending {
+		c.Stats.IncrementRedisSuccessful()
 		return true, nil
 	}
-	c.Log.WithField("url", url).Trace("URL not found in Redis; treated as new")
+	
+	c.Stats.IncrementRedisSuccessful()
 	return false, nil
 }
 
@@ -126,6 +146,7 @@ func (c *Crawler) isURLRequeued(url string) (bool, error) {
 func (c *Crawler) MarkVisited(url string) {
 	c.AddToVisited(url)
 	c.AddToVisitedLocal(url)
+	c.SeenLocal.Store(url, struct{}{}) // Mark as seen locally
 }
 
 func (c *Crawler) AddToVisitedLocal(url string) {
@@ -207,6 +228,19 @@ func (c *Crawler) IsRequeued(url string) (bool, error) {
 }
 
 func (c *Crawler) AddToPending(url string) {
+	// Check if already in pending locally first (to avoid duplicate Redis calls)
+	if _, exists := c.Pending.Load(url); exists {
+		return // Skip if already in pending
+	}
+	
+	// Check if already visited locally
+	if _, exists := c.Visited.Load(url); exists {
+		return // Skip if already visited
+	}
+	
+	// Mark as pending locally
+	c.Pending.Store(url, struct{}{})
+	
 	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel()
 
@@ -239,7 +273,7 @@ func (c *Crawler) RemoveFromPending() (string, error) {
 
 	url, err := c.RedisClient.LPop(ctx, "crawler:pending_urls").Result()
 	if err == redis.Nil {
-		return "", nil
+		return "", redis.Nil
 	}
 	if err != nil {
 		c.Log.WithError(err).Error("Failed to dequeue from pending_urls")
@@ -254,6 +288,9 @@ func (c *Crawler) RemoveFromPending() (string, error) {
 		c.Log.WithField("url", url).WithError(err).Error("Failed to remove from pending_urls_set")
 		c.Stats.IncrementRedisErrored()
 	}
+	
+	// Remove from local pending cache
+	c.Pending.Delete(url)
 
 	return url, nil
 }
@@ -269,4 +306,50 @@ func (c *Crawler) IsPending(url string) (bool, error) {
 		return false, err
 	}
 	return exists, nil
+}
+
+// preloadLocalCaches loads existing URLs from Redis into local caches to minimize future Redis calls
+func (c *Crawler) preloadLocalCaches() {
+	c.Log.Info("Preloading local caches from Redis to minimize future Redis calls...")
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Longer timeout for bulk operation
+	defer cancel()
+	
+	// Load visited URLs (sample to avoid memory issues)
+	visitedURLs, err := c.RedisClient.SRandMemberN(ctx, "crawler:visited_urls", 10000).Result()
+	if err != nil && err != redis.Nil {
+		c.Log.WithError(err).Warn("Failed to preload visited URLs")
+	} else {
+		for _, url := range visitedURLs {
+			c.SeenLocal.Store(url, struct{}{})
+			c.Visited.Store(url, struct{}{})
+		}
+		c.Log.Infof("Preloaded %d visited URLs into local cache", len(visitedURLs))
+	}
+	
+	// Load pending URLs (sample to avoid memory issues)
+	pendingURLs, err := c.RedisClient.SRandMemberN(ctx, "crawler:pending_urls_set", 5000).Result()
+	if err != nil && err != redis.Nil {
+		c.Log.WithError(err).Warn("Failed to preload pending URLs")
+	} else {
+		for _, url := range pendingURLs {
+			c.SeenLocal.Store(url, struct{}{})
+			c.Pending.Store(url, struct{}{})
+		}
+		c.Log.Infof("Preloaded %d pending URLs into local cache", len(pendingURLs))
+	}
+	
+	// Load requeued URLs (all of them since there should be fewer)
+	requeuedURLs, err := c.RedisClient.SMembers(ctx, "crawler:requeued_urls").Result()
+	if err != nil && err != redis.Nil {
+		c.Log.WithError(err).Warn("Failed to preload requeued URLs")
+	} else {
+		for _, url := range requeuedURLs {
+			c.SeenLocal.Store(url, struct{}{})
+			c.Requeued.Store(url, struct{}{})
+		}
+		c.Log.Infof("Preloaded %d requeued URLs into local cache", len(requeuedURLs))
+	}
+	
+	c.Log.Info("Local cache preloading completed")
 }

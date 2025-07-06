@@ -50,7 +50,7 @@ func NewURLValidator(whitelist, blacklist []string, log *logrus.Logger) *URLVali
 		dnsCacheTimeout: 5 * time.Minute,
 		allowPrivateIPs: false,
 		allowLoopback:   false,
-		skipDNSCheck:    false,
+		skipDNSCheck:    true,
 		maxURLLength:    2048, // Default max URL length
 	}
 
