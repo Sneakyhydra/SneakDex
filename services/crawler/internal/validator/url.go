@@ -1,3 +1,18 @@
+// Package validator provides URL validation and normalization functionality for web crawling.
+// It implements comprehensive URL filtering including whitelist/blacklist checking, DNS resolution,
+// IP address validation, and URL normalization to prevent duplicate crawling.
+//
+// Key features:
+//   - URL syntax validation and normalization
+//   - Domain whitelist/blacklist filtering
+//   - DNS resolution with caching for performance
+//   - Private and loopback IP address filtering
+//   - URL deduplication through consistent normalization
+//   - Performance optimization through multi-level caching
+//
+// The validator is designed to be thread-safe and high-performance, using sync.Map
+// for concurrent access to caches and implementing various optimizations to minimize
+// the overhead of URL validation in high-throughput crawling scenarios.
 package validator
 
 import (
@@ -50,7 +65,7 @@ func NewURLValidator(whitelist, blacklist []string, log *logrus.Logger) *URLVali
 		dnsCacheTimeout: 5 * time.Minute,
 		allowPrivateIPs: false,
 		allowLoopback:   false,
-		skipDNSCheck:    true,
+		skipDNSCheck:    false,
 		maxURLLength:    2048, // Default max URL length
 	}
 

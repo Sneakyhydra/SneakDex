@@ -196,7 +196,7 @@ func (c *Config) validatePerformance() error {
 			Field:   "MAX_CONCURRENCY",
 			Value:   fmt.Sprintf("%d", c.MaxConcurrency),
 			Reason:  "must be between 1 and 1000 to prevent resource exhaustion",
-			Example: "16",
+			Example: "32",
 		}
 	}
 
@@ -205,7 +205,7 @@ func (c *Config) validatePerformance() error {
 			Field:   "REQUEST_TIMEOUT",
 			Value:   c.RequestTimeout.String(),
 			Reason:  "must be between 1s and 5m",
-			Example: "30s",
+			Example: "10s",
 		}
 	}
 
@@ -214,7 +214,7 @@ func (c *Config) validatePerformance() error {
 			Field:   "REQUEST_DELAY",
 			Value:   c.RequestDelay.String(),
 			Reason:  "must be between 0 and 30s",
-			Example: "100ms",
+			Example: "50ms",
 		}
 	}
 

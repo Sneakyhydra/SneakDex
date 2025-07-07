@@ -1,3 +1,23 @@
+// Package logger provides structured logging configuration for the Sneakdex crawler.
+// It configures logrus with JSON formatting for structured log output suitable
+// for production environments and log aggregation systems.
+//
+// Features:
+//   - Configurable log levels (trace, debug, info, warn, error, fatal, panic)
+//   - JSON structured output for machine parsing
+//   - Standard output targeting for container environments
+//   - Input validation and error handling
+//
+// The logger is designed to be initialized once at application startup and
+// shared across all components for consistent logging behavior.
+//
+// Example usage:
+//
+//	logger, err := NewLogger("info")
+//	if err != nil {
+//	    log.Fatalf("Failed to initialize logger: %v", err)
+//	}
+//	logger.Info("Application started")
 package logger
 
 import (

@@ -9,7 +9,6 @@ volumes:
   grafana_data:
   kafka-data:
   redis-data:
-  crawler-data:
   indexer-data:
 
 
@@ -20,7 +19,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.dev.yml:/etc/prometheus/prometheus.yml
       - /var/run/docker.sock:/var/run/docker.sock
       - prometheus_data:/prometheus
     command:
@@ -44,9 +43,9 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3000:3000"
+      - "4000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=sneaky
     volumes:
       - grafana_data:/var/lib/grafana
     networks:
@@ -153,12 +152,12 @@ services:
       - REDIS_DB=0
       - REDIS_TIMEOUT=5s
       - REDIS_RETRY_MAX=3
-      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com
+      - START_URLS=https://www.dhruvrishishwar.com,https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com
       - CRAWL_DEPTH=3
-      - MAX_PAGES=1000
-      - MAX_CONCURRENCY=64
+      - MAX_PAGES=500
+      - MAX_CONCURRENCY=16
       - REQUEST_TIMEOUT=10s
-      - REQUEST_DELAY=1ms
+      - REQUEST_DELAY=50ms
       - MAX_CONTENT_SIZE=2621440 # 2.5 MB
       - LOG_LEVEL=info
       - USER_AGENT=Sneakdex/1.0
@@ -170,7 +169,6 @@ services:
       - ./services/crawler/.air.toml:/app/.air.toml
       - ./services/crawler/go.mod:/app/go.mod
       - ./services/crawler/go.sum:/app/go.sum
-      - crawler-data:/app/data
     depends_on:
       kafka:
         condition: service_healthy
@@ -192,20 +190,30 @@ services:
       context: ./services/parser
       dockerfile: Dockerfile.dev
     environment:
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_TOPIC_HTML: raw-html
-      KAFKA_TOPIC_PARSED: parsed-pages
-      RUST_LOG: info
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - KAFKA_TOPIC_PARSED=parsed-pages
+      - KAFKA_RETRY_MAX=3
+      - MAX_CONCURRENCY=4
+      - MAX_CONTENT_SIZE=1048576 # 1 MB
+      - RUST_LOG=info
+      - MONITOR_PORT=8080
     volumes:
       - ./services/parser:/app
-      - crawler-data:/app/crawler-data
     depends_on:
       kafka:
         condition: service_healthy
       crawler-dev:
-        condition: service_started
+        condition: service_healthy
     networks:
       - sneakdex-network
+      - monitoring
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   indexer-dev:

@@ -1,20 +1,63 @@
 networks:
+  monitoring:
+    driver: bridge
   sneakdex-network:
     driver: bridge
 
 volumes:
+  prometheus_data:
+  grafana_data:
   kafka-data:
   redis-data:
-  crawler-data:
-  index-data:
+  indexer-data:
 
 
 services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.prod.yml:/etc/prometheus/prometheus.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - sneakdex-network
+      - monitoring
+    depends_on:
+      kafka-exporter:
+        condition: service_started
+      redis-exporter:
+        condition: service_started
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "4000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=sneaky
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitoring
+    restart: unless-stopped
+
   kafka:
     image: bitnami/kafka:latest
     container_name: sneakdex-kafka
     ports:
       - "9092:9092"
+      - "9999:9999"
     environment:
       - KAFKA_CFG_NODE_ID=1
       - KAFKA_CFG_PROCESS_ROLES=broker,controller
@@ -26,17 +69,37 @@ services:
       - ALLOW_PLAINTEXT_LISTENER=yes
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_MESSAGE_MAX_BYTES=10485760
-      - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=10485760 # 10MB
+      - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=10485760
+      # Enable JMX for metrics
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_JMX_PORT=9999
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
       - sneakdex-network
+      - monitoring
     healthcheck:
-      test: [ "CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list" ]
+      test: [ "CMD-SHELL", "kafka-topics.sh --bootstrap-server 0.0.0.0:9092 --list" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 60s
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    ports:
+      - "9308:9308"
+    command:
+      - '--kafka.server=kafka:9092'
+      - '--web.listen-address=:9308'
+    networks:
+      - sneakdex-network
+      - monitoring
+    depends_on:
+      kafka:
+        condition: service_healthy
     restart: unless-stopped
 
   redis:
@@ -44,16 +107,33 @@ services:
     container_name: sneakdex-redis
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
+    command: redis-server --appendonly yes
     networks:
       - sneakdex-network
+      - monitoring
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    ports:
+      - "9121:9121"
+    command:
+      - '--redis.addr=redis://redis:6379'
+    networks:
+      - monitoring
+      - sneakdex-network
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   crawler:
@@ -61,36 +141,26 @@ services:
       context: ./services/crawler
       dockerfile: Dockerfile
     environment:
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_TOPIC_HTML: raw-html
-      KAFKA_RETRY_MAX: 3
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      REDIS_DB: 0
-      REDIS_TIMEOUT: 60s
-      REDIS_RETRY_MAX: 3
-      START_URLS: >
-        https://en.wikipedia.org/wiki/Special:Random, https://simple.wikipedia.org/wiki/Special:Random, https://news.ycombinator.com, https://www.reuters.com/news/archive/worldNews, https://www.bbc.com/news, https://github.com/trending, https://stackoverflow.com/questions, https://dev.to, https://developer.mozilla.org/en-US/docs/Web, https://arxiv.org/list/cs/new, https://eng.uber.com, https://netflixtechblog.com, https://blog.cloudflare.com
-      CRAWL_DEPTH: 3
-      MAX_PAGES: 10000
-      URL_WHITELIST: ""
-      URL_BLACKLIST: ""
-      MAX_CONCURRENCY: 16
-      REQUEST_TIMEOUT: 30s
-      REQUEST_DELAY: 100ms
-      MAX_CONTENT_SIZE: 5242880 # 5 MB
-      LOG_LEVEL: info
-      USER_AGENT: SneakdexCrawler/1.0
-      ENABLE_DEBUG: false
-      HEALTH_CHECK_PORT: 8080
-    volumes:
-      - ./services/crawler/cmd:/app/cmd
-      - ./services/crawler/internal:/app/internal
-      - ./services/crawler/.air.toml:/app/.air.toml
-      - ./services/crawler/go.mod:/app/go.mod
-      - ./services/crawler/go.sum:/app/go.sum
-      - crawler-data:/app/data
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - KAFKA_RETRY_MAX=3
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=""
+      - REDIS_DB=0
+      - REDIS_TIMEOUT=5s
+      - REDIS_RETRY_MAX=3
+      - START_URLS=https://www.dhruvrishishwar.com,https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com
+      - CRAWL_DEPTH=3
+      - MAX_PAGES=100000
+      - MAX_CONCURRENCY=64
+      - REQUEST_TIMEOUT=10s
+      - REQUEST_DELAY=5ms
+      - MAX_CONTENT_SIZE=2621440 # 2.5 MB
+      - LOG_LEVEL=info
+      - USER_AGENT=Sneakdex/1.0
+      - ENABLE_DEBUG=false
+      - MONITOR_PORT=8080
     depends_on:
       kafka:
         condition: service_healthy
@@ -98,25 +168,42 @@ services:
         condition: service_healthy
     networks:
       - sneakdex-network
+      - monitoring
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   parser:
     build:
       context: ./services/parser
       dockerfile: Dockerfile
-    container_name: sneakdex-parser
     environment:
-      KAFKA_BROKERS: kafka:9092
-      KAFKA_TOPIC_HTML: raw-html
-      KAFKA_TOPIC_PARSED: parsed-pages
-      RUST_LOG: info
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - KAFKA_TOPIC_PARSED=parsed-pages
+      - KAFKA_RETRY_MAX=3
+      - MAX_CONCURRENCY=16
+      - MAX_CONTENT_SIZE=1048576 # 1 MB
+      - RUST_LOG=info
+      - MONITOR_PORT=8080
     depends_on:
       kafka:
         condition: service_healthy
       crawler:
-        condition: service_started
+        condition: service_healthy
     networks:
       - sneakdex-network
+      - monitoring
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   indexer:

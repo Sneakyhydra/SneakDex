@@ -1,3 +1,24 @@
+// Package config provides configuration management for the Sneakdex crawler service.
+// It handles loading configuration from environment variables with sensible defaults,
+// comprehensive validation, and structured error reporting.
+//
+// Configuration categories:
+//   - Kafka: Message queue settings for downstream processing
+//   - Redis: Cache and URL queue management
+//   - Crawling: Behavior settings like depth, limits, and URL filtering
+//   - Performance: Concurrency, timeouts, and rate limiting
+//   - Application: Logging, monitoring, and operational settings
+//
+// All configuration values are validated for correctness and safety before use.
+// Invalid configurations result in detailed error messages with examples.
+//
+// Example usage:
+//
+//	cfg, err := InitializeConfig()
+//	if err != nil {
+//	    log.Fatalf("Configuration error: %v", err)
+//	}
+//	// cfg now contains validated configuration ready for use
 package config
 
 import (
@@ -21,21 +42,21 @@ type Config struct {
 	RedisPort     int           `envconfig:"REDIS_PORT" default:"6379"`
 	RedisPassword string        `envconfig:"REDIS_PASSWORD" default:""`
 	RedisDB       int           `envconfig:"REDIS_DB" default:"0"`
-	RedisTimeout  time.Duration `envconfig:"REDIS_TIMEOUT" default:"15s"`
+	RedisTimeout  time.Duration `envconfig:"REDIS_TIMEOUT" default:"5s"`
 	RedisRetryMax int           `envconfig:"REDIS_RETRY_MAX" default:"3"`
 
 	// Crawling Behavior - Core crawling parameters and URL management
-	StartURLs    string `envconfig:"START_URLS" default:"https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com"`
+	StartURLs    string `envconfig:"START_URLS" default:"https://www.dhruvrishishwar.com,https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com"`
 	CrawlDepth   int    `envconfig:"CRAWL_DEPTH" default:"3"`
-	MaxPages     int64  `envconfig:"MAX_PAGES" default:"1000"`
+	MaxPages     int64  `envconfig:"MAX_PAGES" default:"10000"`
 	URLWhitelist string `envconfig:"URL_WHITELIST" default:""`
 	URLBlacklist string `envconfig:"URL_BLACKLIST" default:""`
 
 	// Performance & Limits - Resource management and rate limiting
 	MaxConcurrency int           `envconfig:"MAX_CONCURRENCY" default:"32"`
-	RequestTimeout time.Duration `envconfig:"REQUEST_TIMEOUT" default:"15s"`
+	RequestTimeout time.Duration `envconfig:"REQUEST_TIMEOUT" default:"10s"`
 	RequestDelay   time.Duration `envconfig:"REQUEST_DELAY" default:"50ms"`
-	MaxContentSize int           `envconfig:"MAX_CONTENT_SIZE" default:"2621440"` // 2.5MB default
+	MaxContentSize int           `envconfig:"MAX_CONTENT_SIZE" default:"2621440"` // 2.5MB
 
 	// Application Settings - Logging, monitoring, and operational parameters
 	LogLevel    string `envconfig:"LOG_LEVEL" default:"info"`

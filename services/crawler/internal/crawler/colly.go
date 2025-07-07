@@ -19,7 +19,6 @@ func (c *Crawler) setupCollyCollector() *colly.Collector {
 	c.setLinkHandler(collector)
 	c.setErrorHandler(collector)
 	c.setResponseHandler(collector)
-	c.setResponseLogger(collector)
 	return collector
 }
 
@@ -98,10 +97,10 @@ func (c *Crawler) setRequestHandler(collector *colly.Collector) {
 			c.IncrementInFlightPages()
 			c.Log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Visiting URL")
 		}
-
 	})
 }
 
+// setLinkHandler allows us to find links in an html page.
 func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		select {
@@ -135,13 +134,8 @@ func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 					return
 				}
 			}
-			// Check for fragments (slower but necessary)
-			if strings.Contains(link, "#") {
-				return
-			}
 
-			absoluteURL := e.Request.AbsoluteURL(link)
-			normalizedURL, valid := c.UrlValidator.IsValidURL(absoluteURL)
+			normalizedURL, valid := c.UrlValidator.IsValidURL(link)
 			if !valid {
 				return
 			}
@@ -156,6 +150,7 @@ func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 	})
 }
 
+// setErrorHandler allows us to handle errors gracefully.
 func (c *Crawler) setErrorHandler(collector *colly.Collector) {
 	collector.OnError(func(r *colly.Response, err error) {
 		defer c.DecrementInFlightPages()
@@ -182,82 +177,56 @@ func (c *Crawler) setErrorHandler(collector *colly.Collector) {
 	})
 }
 
+// setResponseHandler allows us to process the response of a request and send it to kafka.
 func (c *Crawler) setResponseHandler(collector *colly.Collector) {
 	collector.OnResponse(func(r *colly.Response) {
 		defer c.DecrementInFlightPages()
 
-		if !strings.Contains(r.Headers.Get("Content-Type"), "text/html") {
-			c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("Non-HTML content received, skipping")
-			c.MarkVisited(r.Request.URL.String())
-			// Don't call DecrementInFlightPages here - defer will handle it
-			r.Request.Abort()
-			return
-		}
-
-		select {
-		case <-c.Ctx.Done():
-			c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("HTML processing skipped due to shutdown")
-			return
-
-		default:
-			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
-				c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("Max pages limit reached, stopping HTML processing")
-				select {
-				case <-c.Ctx.Done():
-					c.Log.Debug("Context done, stopping further processing")
-				default:
-					c.CtxCancel() // Cancel the context to stop further processing
-					c.Log.Debug("Context cancelled due to MaxPages limit")
-				}
-				return
-			}
-
-			c.Stats.IncrementPagesProcessed()
-			url := r.Request.URL.String()
-			html := string(r.Body)
-
-			// Send the HTML content to Kafka
-			if retry, err := c.sendToKafka(url, html); err != nil {
-				if retry {
-					if exists, err := c.isURLRequeued(url); exists {
-						c.Log.WithFields(logrus.Fields{"url": url}).Trace("URL already requeued once. Will be marked as visited")
-						c.RemoveFromRequeuedLocal(url)
-						c.RemoveFromRequeued(url)
-					} else {
-						// Re-queue URL instead of marking as visited
-						c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Retriable error occurred, requeuing URL")
-
-						c.AddToPending(url)
-						c.AddToRequeued(url)
-						c.AddToRequeuedLocal(url)
-						return
-					}
-				}
-
-				c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to send to Kafka")
-				c.Stats.IncrementPagesFailed()
-				// IMPORTANT: Mark as visited even if sending to Kafka fails
-				c.MarkVisited(url) // This prevents immediate retries of the same URL
-				return
-			}
-
-			c.Stats.IncrementPagesSuccessful()
-			c.Log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully and enqueued to Kafka.")
-			c.MarkVisited(url)
-		}
-	})
-}
-
-func (c *Crawler) setResponseLogger(collector *colly.Collector) {
-	if c.Cfg.EnableDebug {
-		collector.OnResponse(func(r *colly.Response) {
+		if c.Cfg.EnableDebug {
 			c.Log.WithFields(logrus.Fields{
 				"url":          r.Request.URL.String(),
-				"method":       r.Request.Method, // Add request method
+				"method":       r.Request.Method,
 				"status_code":  r.StatusCode,
 				"content_type": r.Headers.Get("Content-Type"),
 				"size":         len(r.Body),
 			}).Debug("Response received")
-		})
-	}
+		}
+
+		if !strings.Contains(r.Headers.Get("Content-Type"), "text/html") {
+			c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("Non-HTML content received, skipping")
+			c.MarkVisited(r.Request.URL.String())
+			r.Request.Abort()
+			return
+		}
+
+		c.Stats.IncrementPagesProcessed()
+		url := r.Request.URL.String()
+		html := string(r.Body)
+
+		// Send the HTML content to Kafka
+		if retry, err := c.sendToKafka(url, html); err != nil {
+			if retry {
+				if exists, err := c.isURLRequeued(url); exists {
+					c.Log.WithFields(logrus.Fields{"url": url}).Trace("URL already requeued once. Will be marked as visited")
+					c.RemoveFromRequeued(url)
+				} else {
+					// Re-queue URL instead of marking as visited
+					c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Retriable error occurred, requeuing URL")
+
+					c.AddToPending(url)
+					c.AddToRequeued(url)
+					return
+				}
+			}
+
+			c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Error("Failed to send to Kafka")
+			c.Stats.IncrementPagesFailed()
+			c.MarkVisited(url)
+			return
+		}
+
+		c.Stats.IncrementPagesSuccessful()
+		c.Log.WithFields(logrus.Fields{"url": url, "content_size": len(html)}).Debug("Page processed successfully and enqueued to Kafka.")
+		c.MarkVisited(url)
+	})
 }

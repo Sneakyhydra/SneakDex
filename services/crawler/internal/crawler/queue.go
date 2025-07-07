@@ -9,16 +9,12 @@ import (
 	"github.com/gocolly/colly/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
-	// Internal modules
 )
 
 // feedCollyFromRedisQueue continuously feeds URLs from the Redis pending queue to the Colly collector.
 func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
-	defer c.Wg.Done() // Mark this goroutine as done when exiting
+	defer c.Wg.Done()
 	c.Log.Info("Starting Redis queue feeder goroutine")
-
-	waitTicker := time.NewTicker(1 * time.Minute)
-	defer waitTicker.Stop()
 
 	emptyQueueChecks := 0
 	const maxEmptyChecks = 5
@@ -29,10 +25,6 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 			c.Log.Info("Redis queue feeder stopping due to context cancellation")
 			collector.Wait()
 			return
-
-		case <-waitTicker.C:
-			// Periodic check without blocking
-
 		default:
 			// Check if page processing limit is reached
 			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
@@ -42,10 +34,10 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 
 			// Check concurrency limits before processing
 			if c.GetInFlightPages() >= int64(c.Cfg.MaxConcurrency) {
-				time.Sleep(1 * time.Millisecond) // Brief pause if at capacity
+				time.Sleep(5 * time.Millisecond) // Brief pause if at capacity
 				continue
 			}
-			
+
 			url, err := c.RemoveFromPending()
 			if err == redis.Nil {
 				emptyQueueChecks++
@@ -53,8 +45,8 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 
 				// Stop if queue is empty for prolonged checks and no active work remains
 				if emptyQueueChecks >= maxEmptyChecks {
-					if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages || c.GetInFlightPages() == 0 {
-						c.Log.Info("Queue is consistently empty and termination condition met. Exiting feeder.")
+					if c.GetInFlightPages() == 0 {
+						c.Log.Info("Queue is consistently empty and no pages being processed. Exiting feeder.")
 						return
 					}
 					c.Log.Debug("Queue still empty, but conditions not met to terminate. Retrying...")
@@ -62,7 +54,6 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 				continue
 			} else if err != nil {
 				c.Log.WithError(err).Error("Redis error while popping URL from pending queue")
-				c.Stats.IncrementRedisErrored()
 				continue
 			}
 
@@ -79,8 +70,6 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 				c.MarkVisited(url)
 				c.Stats.IncrementPagesFailed()
 			}
-			
-			// No delay - process URLs as fast as possible
 		}
 	}
 }

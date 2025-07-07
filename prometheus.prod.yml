@@ -18,11 +18,11 @@ scrape_configs:
     static_configs:
       - targets: ["kafka-exporter:9308"]
 
-  # Scrape crawler-dev replicas (dynamic ports if scaled with --scale)
-  - job_name: "crawler-dev"
-    dns_sd_configs:
-      - names:
-          - "crawler-dev"
-        type: "A"
-        port: 8090
-        refresh_interval: 30s
+  - job_name: "crawler"
+    static_configs:
+      - targets:
+          - "sneakdex-crawler-1:8080"
+          - "sneakdex-crawler-2:8080"
+          - "sneakdex-crawler-3:8080"
+          - "sneakdex-crawler-4:8080"
+          - "sneakdex-crawler-5:8080"

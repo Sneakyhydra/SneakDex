@@ -1,3 +1,22 @@
+// Package crawler implements the core web crawling functionality for the Sneakdex system.
+// It provides a distributed crawler that uses Redis for URL queue management and Kafka
+// for publishing discovered content. The crawler is designed to be scalable, resilient,
+// and observant of robots.txt and rate limiting policies.
+//
+// The main components include:
+//   - Crawler: Main orchestrator managing the crawling lifecycle
+//   - Colly integration: High-performance HTML scraping and link discovery
+//   - Redis queue: Persistent URL queue management for distributed crawling
+//   - Kafka messaging: Asynchronous delivery of crawled content to downstream processors
+//   - URL validation: Security and quality filtering of discovered URLs
+//   - Metrics collection: Performance monitoring and operational visibility
+//
+// Example usage:
+//
+//	cfg, _ := config.InitializeConfig()
+//	log, _ := logger.NewLogger(cfg.LogLevel)
+//	crawler, _ := crawler.New(cfg, log)
+//	crawler.Start() // Blocks until crawling completes or shutdown
 package crawler
 
 import (
@@ -29,15 +48,14 @@ type Crawler struct {
 	RedisClient   *redis.Client           // Client for interacting with Redis for URL queue management.
 	AsyncProducer sarama.AsyncProducer    // Kafka async producer for publishing crawled page data.
 	Stats         *metrics.Metrics        // Metrics collector for tracking crawling statistics.
-	UrlValidator *validator.URLValidator // URL validator for checking and normalizing URLs.
+	UrlValidator  *validator.URLValidator // URL validator for checking and normalizing URLs.
 
 	Whitelist     []string // List of URL patterns allowed for crawling.
 	Blacklist     []string // List of URL patterns disallowed for crawling.
-	Visited       sync.Map // A concurrent map to keep track of URLs that have been visited or are currently in flight
+	Seen          sync.Map // Local cache for any URL we've seen (visited, pending, or rejected).
 	Requeued      sync.Map // A concurrent map to keep track of URLs that have been re-queued due to transient errors.
-	Pending       sync.Map // Local cache for pending URLs to avoid Redis checks
-	SeenLocal     sync.Map // Local cache for any URL we've seen (visited, pending, or rejected)
-	InFlightPages int64    // Track pages currently being processed (consider using a semaphore or channel for more robust control if this becomes complex).
+	Pending       sync.Map // Local cache for pending URLs to avoid Redis checks.
+	InFlightPages int64    // Track pages currently being processed.
 
 	Ctx           context.Context
 	CtxCancel     context.CancelFunc // Function to cancel the context, used for graceful shutdown.
@@ -60,7 +78,7 @@ func New(cfg *config.Config, log *logrus.Logger) (*Crawler, error) {
 	crawler := &Crawler{
 		Cfg:       cfg,
 		Log:       log,
-		Stats:     metrics.NewMetrics(), // Create a new metrics collector.
+		Stats:     metrics.NewMetrics(),
 		Ctx:       ctx,
 		CtxCancel: ctxCancel,
 		CShutdown: shutdown,
@@ -101,7 +119,7 @@ func New(cfg *config.Config, log *logrus.Logger) (*Crawler, error) {
 	// SetSkipDNSCheck to 'false' means DNS resolution will be performed for each URL.
 	// Setting it to 'true' would skip DNS checks, which is faster but less safe
 	// as it could allow connections to unresolvable or malicious IPs.
-	crawler.UrlValidator.SetSkipDNSCheck(true)
+	crawler.UrlValidator.SetSkipDNSCheck(false)
 	crawler.UrlValidator.SetAllowPrivateIPs(false) // Disallow crawling of private IP addresses.
 	crawler.UrlValidator.SetAllowLoopback(false)   // Disallow crawling of loopback addresses (e.g., 127.0.0.1).
 
@@ -123,7 +141,7 @@ func (c *Crawler) Start() error {
 			"brokers":       c.Cfg.KafkaBrokers,
 			"topic":         c.Cfg.KafkaTopic,
 			"retry_max":     c.Cfg.KafkaRetryMax,
-			"producer_type": "Async", // Explicitly state producer type
+			"producer_type": "Async",
 		},
 		"redis_config": logrus.Fields{
 			"host":      c.Cfg.RedisHost,
@@ -167,10 +185,7 @@ func (c *Crawler) Start() error {
 		c.Log.Warn("No start URLs provided in configuration. Crawler will not initiate any crawls.")
 	} else {
 		c.Log.Infof("Attempting to seed Redis with %d start URLs.", len(startURLs))
-		
-		// Pre-populate local cache by loading existing Redis data
-		c.preloadLocalCaches()
-		
+
 		for _, rawURL := range startURLs {
 			url := strings.TrimSpace(rawURL)
 			if url == "" {
@@ -186,6 +201,9 @@ func (c *Crawler) Start() error {
 
 			c.AddToPending(normalizedURL)
 		}
+
+		// Pre-populate local cache by loading existing Redis data
+		c.preloadLocalCaches()
 	}
 
 	// --- Core Waiting Logic ---
@@ -204,19 +222,18 @@ func (c *Crawler) Start() error {
 	go func() {
 		defer close(doneChan) // Ensure doneChan is closed when this goroutine exits.
 
-		// First, wait for Colly to finish processing all URLs it has been given.
-		// This will only complete once `feedCollyFromRedisQueue` stops feeding it URLs
-		// (either due to context cancellation, max pages, or empty Redis queue).
-		c.Log.Info("Waiting for Colly collector to finish processing its internal queue...")
-		collector.Wait()
-		c.Log.Info("Colly collector finished processing its internal queue.")
-
-		// Then, wait for the feedCollyFromRedisQueue goroutine to exit.
+		// First, wait for the feedCollyFromRedisQueue goroutine to exit.
 		// It will exit when its internal conditions (context, max pages + empty queue) are met.
 		c.Log.Info("Waiting for Redis queue feeder goroutine to stop...")
 		c.Wg.Wait() // Wait for all goroutines added to `wg` (primarily feedCollyFromRedisQueue)
 		c.Log.Info("Redis queue feeder goroutine has stopped.")
 
+		// Then, wait for Colly to finish processing all URLs it has been given.
+		// This will only complete once `feedCollyFromRedisQueue` stops feeding it URLs
+		// (either due to context cancellation, max pages, or empty Redis queue).
+		c.Log.Info("Waiting for Colly collector to finish processing its internal queue...")
+		collector.Wait()
+		c.Log.Info("Colly collector finished processing its internal queue.")
 	}()
 
 	// Block the main `Start()` goroutine until all crawling activities are done.
@@ -315,8 +332,10 @@ func (c *Crawler) logMetricsPeriodically() {
 					"pages_failed":     stats["pages_failed"],
 					"kafka_successful": stats["kafka_successful"],
 					"kafka_failed":     stats["kafka_failed"],
+					"kafka_errored":    stats["kafka_errored"],
 					"redis_successful": stats["redis_successful"],
 					"redis_failed":     stats["redis_failed"],
+					"redis_errored":    stats["redis_errored"],
 					"uptime_seconds":   fmt.Sprintf("%.2f", stats["uptime_seconds"].(float64)),
 					"pages_per_second": fmt.Sprintf("%.2f", pagesPerSecond),
 				}).Info("Current crawler metrics")

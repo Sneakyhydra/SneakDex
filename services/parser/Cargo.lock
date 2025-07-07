@@ -1065,6 +1065,7 @@ dependencies = [
  "futures",
  "log",
  "rdkafka",
+ "regex",
  "scraper",
  "serde",
  "serde_json",

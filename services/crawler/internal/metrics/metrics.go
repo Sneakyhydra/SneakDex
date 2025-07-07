@@ -1,3 +1,23 @@
+// Package metrics provides comprehensive performance monitoring and statistics collection
+// for the web crawler. It implements thread-safe counters for various crawler operations
+// and integrates with Prometheus for external monitoring and alerting.
+//
+// The metrics system tracks:
+//   - Page processing statistics (total, successful, failed)
+//   - Kafka message delivery statistics (successful, failed, errored)
+//   - Redis operation statistics (successful, failed, errored)
+//   - System uptime and performance ratios
+//
+// All counters use atomic operations for thread safety and are exposed both as
+// internal statistics (via GetStats) and as Prometheus metrics for integration
+// with monitoring infrastructure.
+//
+// Example usage:
+//
+//	metrics := NewMetrics()
+//	metrics.IncrementPagesProcessed()
+//	stats := metrics.GetStats() // Get current statistics
+//	metrics.SyncPrometheusMetrics() // Update Prometheus gauges
 package metrics
 
 import (

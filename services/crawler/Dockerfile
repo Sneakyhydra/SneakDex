@@ -23,6 +23,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # Stage 2: Create the final lightweight image
 FROM alpine:3.19
 
+# Install wget for healthchecks
+RUN apk add --no-cache curl
+
 # Add CA certificates and timezone data
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo

@@ -1,26 +1,41 @@
+# Root directory for the project and temporary build directory
 root = "."
-tmp_dir = "tmp"
+tmp_dir = "tmp"  # Where compiled binaries are stored during development
 
 [build]
-  bin = "./tmp/crawler"
-  cmd = "go build -o ./tmp/crawler ./cmd/crawler"
+  # Output binary path and build command
+  bin = "./tmp/crawler"  # Path to the compiled binary
+  cmd = "go build -o ./tmp/crawler ./cmd/crawler"  # Build command
+  
+  # Rebuild delay to batch rapid file changes (milliseconds)
   delay = 500
+  
+  # Directories to exclude from file watching (performance optimization)
   exclude_dir = ["tmp", "vendor", "data"]
-  exclude_regex = ["_test.go"]
-  include_ext = ["go"]
-  kill_delay = "2s"
-  send_interrupt = true
+  
+  # File patterns to exclude from triggering rebuilds
+  exclude_regex = ["_test.go"]  # Don't rebuild on test file changes
+  
+  # File extensions that trigger rebuilds
+  include_ext = ["go"]  # Only watch Go source files
+  
+  # Graceful shutdown settings
+  kill_delay = "2s"        # Time to wait before force killing
+  send_interrupt = true    # Send SIGINT for graceful shutdown
 
 [color]
-  app = ""
-  build = "yellow"
-  main = "magenta"
-  runner = "green"
-  watcher = "cyan"
+  # Terminal color scheme for different output types
+  app = ""          # Application output (default color)
+  build = "yellow"  # Build process messages
+  main = "magenta"  # Main process messages
+  runner = "green"  # Air runner messages
+  watcher = "cyan"  # File watcher messages
 
 [log]
-  main_only = false
-  time = true
+  # Logging configuration for development
+  main_only = false  # Show all output, not just main process
+  time = true        # Include timestamps in Air's log output
 
 [misc]
-  clean_on_exit = true
+  # Cleanup behavior
+  clean_on_exit = true  # Remove temporary files when Air exits

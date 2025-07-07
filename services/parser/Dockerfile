@@ -32,7 +32,7 @@ FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && \
-    apt-get install -y ca-certificates libssl3 && \
+    apt-get install -y ca-certificates libssl3 curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

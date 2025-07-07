@@ -3,48 +3,127 @@ package monitor
 import (
 	// Stdlib
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	// Third-party
-	"github.com/IBM/sarama"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // handleHealth checks the health of the monitor server by verifying Redis and Kafka connectivity.
 // It responds with HTTP 200 OK if healthy, or an error message with HTTP 503 Service Unavailable if unhealthy.
 func (ms *monitorServer) handleHealth(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// Basic Redis check
+	// Set response headers
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	// Health check results
+	healthStatus := struct {
+		Status    string            `json:"status"`
+		Timestamp time.Time         `json:"timestamp"`
+		Services  map[string]string `json:"services"`
+		Errors    []string          `json:"errors,omitempty"`
+	}{
+		Status:    "healthy",
+		Timestamp: time.Now().UTC(),
+		Services:  make(map[string]string),
+		Errors:    []string{},
+	}
+
+	// Check Redis connectivity
+	if err := ms.checkRedisHealth(ctx); err != nil {
+		healthStatus.Status = "unhealthy"
+		healthStatus.Services["redis"] = "unhealthy"
+		healthStatus.Errors = append(healthStatus.Errors, fmt.Sprintf("Redis: %v", err))
+	} else {
+		healthStatus.Services["redis"] = "healthy"
+	}
+
+	// Check Kafka connectivity
+	if err := ms.checkKafkaHealth(); err != nil {
+		healthStatus.Status = "unhealthy"
+		healthStatus.Services["kafka"] = "unhealthy"
+		healthStatus.Errors = append(healthStatus.Errors, fmt.Sprintf("Kafka: %v", err))
+	} else {
+		healthStatus.Services["kafka"] = "healthy"
+	}
+
+	// Check application-specific health
+	if err := ms.checkApplicationHealth(); err != nil {
+		healthStatus.Status = "unhealthy"
+		healthStatus.Services["application"] = "unhealthy"
+		healthStatus.Errors = append(healthStatus.Errors, fmt.Sprintf("Application: %v", err))
+	} else {
+		healthStatus.Services["application"] = "healthy"
+	}
+
+	// Set HTTP status code
+	statusCode := http.StatusOK
+	if healthStatus.Status == "unhealthy" {
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	// Send JSON response
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(healthStatus); err != nil {
+		// Fallback to plain text if JSON encoding fails
+		w.Header().Set("Content-Type", "text/plain")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+// checkRedisHealth performs Redis connectivity check
+func (ms *monitorServer) checkRedisHealth(ctx context.Context) error {
+	// Basic ping test
 	if err := ms.crawler.RedisClient.Ping(ctx).Err(); err != nil {
-		http.Error(w, fmt.Sprintf("Redis unhealthy: %v", err), http.StatusServiceUnavailable)
-		return
+		return fmt.Errorf("ping failed: %w", err)
 	}
 
-	// Basic Kafka check - verify AsyncProducer is running
+	return nil
+}
+
+// checkKafkaHealth performs Kafka connectivity and producer health check
+func (ms *monitorServer) checkKafkaHealth() error {
+	// Check if AsyncProducer is initialized
 	if ms.crawler.AsyncProducer == nil {
-		http.Error(w, "Kafka AsyncProducer not initialized", http.StatusServiceUnavailable)
-		return
-	}
-	
-	// Try to send a health check message (non-blocking)
-	select {
-	case ms.crawler.AsyncProducer.Input() <- &sarama.ProducerMessage{
-		Topic: "health-check",
-		Value: sarama.StringEncoder("health-check"),
-	}:
-		// Message queued successfully
-	case <-time.After(100 * time.Millisecond):
-		// Channel is full or producer is not responsive
-		http.Error(w, "Kafka AsyncProducer channel full or unresponsive", http.StatusServiceUnavailable)
-		return
+		return fmt.Errorf("AsyncProducer not initialized")
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+	return nil
+}
+
+// checkApplicationHealth performs application-specific health checks
+func (ms *monitorServer) checkApplicationHealth() error {
+	// Check if crawler is running
+	if ms.crawler == nil {
+		return fmt.Errorf("crawler not initialized")
+	}
+
+	// Check if stats are being collected
+	if ms.crawler.Stats == nil {
+		return fmt.Errorf("stats collector not initialized")
+	}
+
+	// Optional: Check if there are any critical application errors
+	// This could include checking error rates, queue sizes, etc.
+
+	// Example: Check if error rate is too high
+	// if ms.crawler.Stats.GetErrorRate() > 0.5 {
+	//     return fmt.Errorf("error rate too high: %.2f", ms.crawler.Stats.GetErrorRate())
+	// }
+
+	// Example: Check if queue size is too large
+	// if queueSize := ms.crawler.GetQueueSize(); queueSize > 10000 {
+	//     return fmt.Errorf("queue size too large: %d", queueSize)
+	// }
+
+	return nil
 }
 
 // handleMetrics retrieves and returns the current metrics in Prometheus format.

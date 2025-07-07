@@ -2,7 +2,7 @@
 FROM golang:1.24-alpine
 
 # Install dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache git ca-certificates tzdata curl
 
 # Install Air
 RUN go install github.com/air-verse/air@latest

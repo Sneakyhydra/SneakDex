@@ -11,7 +11,15 @@ import (
 	"github.com/IBM/sarama"
 )
 
-// initializeKafka sets up Kafka producer with proper configuration
+// initializeKafka sets up the Kafka AsyncProducer with optimized configuration for high-throughput crawling.
+// It configures batching, compression, retries, and timeouts for reliable message delivery.
+// Returns an error if Kafka connection cannot be established after configured retry attempts.
+//
+// Configuration highlights:
+//   - Uses Snappy compression for better throughput
+//   - Batches messages for efficiency (100ms intervals or 100 messages)
+//   - Implements exponential backoff retry strategy
+//   - Optimizes for local acknowledgment (WaitForLocal) for better performance
 func (c *Crawler) initializeKafka() error {
 	//  Create a new Sarama configuration
 	kafkaConfig := sarama.NewConfig()
@@ -55,8 +63,22 @@ func (c *Crawler) initializeKafka() error {
 	return fmt.Errorf("failed to create kafka producer after %d attempts. please ensure kafka is running on %s", c.Cfg.KafkaRetryMax, strings.Join(brokers, ","))
 }
 
-// sendToKafka sends the scraped HTML content to Kafka asynchronously.
-// Returns true if the url is retriable.
+// sendToKafka sends the scraped HTML content to Kafka asynchronously for downstream processing.
+// It performs content size validation, creates a properly structured Kafka message, and attempts
+// non-blocking message queuing with a timeout fallback.
+//
+// Parameters:
+//   - url: The source URL of the crawled content (used as message key for partitioning)
+//   - html: The scraped HTML content to be sent
+//
+// Returns:
+//   - bool: true if the error is retriable (network issues, channel full), false otherwise
+//   - error: any error encountered during the send operation
+//
+// The function implements the following safeguards:
+//   - Content size validation against configured limits
+//   - Non-blocking send with timeout to prevent goroutine blocking
+//   - Retriable error detection for intelligent retry logic
 func (c *Crawler) sendToKafka(url, html string) (bool, error) {
 	if len(html) > c.Cfg.MaxContentSize {
 		return false, fmt.Errorf("HTML content exceeds maximum size of %d bytes", c.Cfg.MaxContentSize)
@@ -83,10 +105,24 @@ func (c *Crawler) sendToKafka(url, html string) (bool, error) {
 	}
 }
 
-// startAsyncProducerHandlers starts goroutines to handle async producer success/error messages
+// startAsyncProducerHandlers launches background goroutines to process Kafka AsyncProducer responses.
+// This function creates two dedicated handlers that run for the lifetime of the crawler:
+//
+// Success Handler:
+//   - Processes successful message deliveries from Kafka
+//   - Updates success metrics for monitoring
+//   - Provides debug logging for successful sends
+//
+// Error Handler:
+//   - Processes failed message deliveries and connection errors
+//   - Implements intelligent error classification (retriable vs. permanent)
+//   - Automatically requeues URLs for retriable errors (network issues)
+//   - Updates appropriate error metrics based on error type
+//
+// Both handlers respect the crawler's shutdown signal and participate in graceful shutdown.
 func (c *Crawler) startAsyncProducerHandlers() {
 	c.Wg.Add(2)
-	
+
 	// Success handler
 	go func() {
 		defer c.Wg.Done()
@@ -103,7 +139,7 @@ func (c *Crawler) startAsyncProducerHandlers() {
 			}
 		}
 	}()
-	
+
 	// Error handler
 	go func() {
 		defer c.Wg.Done()
@@ -115,13 +151,12 @@ func (c *Crawler) startAsyncProducerHandlers() {
 					"url":   url,
 					"error": err.Err,
 				}).Error("Failed to send message to Kafka")
-				
+
 				// Check if it's a retriable error
 				if strings.Contains(err.Err.Error(), "connection refused") ||
 					strings.Contains(err.Err.Error(), "no such host") ||
 					strings.Contains(err.Err.Error(), "timeout") {
 					c.Stats.IncrementKafkaErrored()
-					// Optionally requeue the URL
 					c.AddToPending(url)
 				} else {
 					c.Stats.IncrementKafkaFailed()

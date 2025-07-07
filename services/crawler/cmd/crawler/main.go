@@ -1,3 +1,27 @@
+// Package main implements the entry point for the Sneakdex web crawler service.
+// This application provides a production-ready web crawler that discovers and processes
+// web content for the Sneakdex system, with comprehensive error handling, graceful
+// shutdown, and operational monitoring.
+//
+// The crawler service integrates multiple components:
+//   - Configuration management with environment variable support
+//   - Structured JSON logging with configurable levels
+//   - Distributed crawling using Redis for URL queue management
+//   - Kafka integration for downstream content processing
+//   - HTTP monitoring endpoints for health checks and metrics
+//   - Graceful shutdown handling with configurable timeouts
+//
+// The application follows production best practices including:
+//   - Proper exit codes for different failure scenarios
+//   - Signal-based shutdown handling (SIGTERM, SIGINT, SIGQUIT)
+//   - Comprehensive error logging and monitoring
+//   - Resource cleanup and graceful component shutdown
+//
+// Usage:
+//
+//	Set environment variables for configuration (see config package)
+//	Run: ./crawler
+//	Monitor: curl http://localhost:8080/health
 package main
 
 import (

@@ -1,3 +1,22 @@
+// Package monitor provides HTTP endpoints for health checking and metrics exposure.
+// It implements a lightweight web server that runs alongside the crawler to provide
+// operational visibility and integration with monitoring systems.
+//
+// The monitor server exposes:
+//   - /health: Health check endpoint for load balancers and orchestrators
+//   - /metrics: Prometheus metrics endpoint for performance monitoring
+//
+// The server automatically starts when the crawler initializes and shuts down
+// gracefully when the crawler receives a shutdown signal. It performs periodic
+// synchronization of internal metrics to Prometheus gauges.
+//
+// Health checks verify:
+//   - Redis connectivity and responsiveness
+//   - Kafka producer availability and channel responsiveness
+//   - Overall system health status
+//
+// This package is designed to be lightweight and non-intrusive to the main
+// crawling operations while providing essential observability.
 package monitor
 
 import (

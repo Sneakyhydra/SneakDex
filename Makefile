@@ -16,6 +16,8 @@ NC=\033[0m # No Color
 .PHONY: help \
         up-dev down-dev start-dev stop-dev restart-dev build-dev rebuild-dev logs-dev status-dev reset-dev clean-dev \
         up-prod down-prod start-prod stop-prod restart-prod build-prod rebuild-prod logs-prod status-prod reset-prod clean-prod \
+        start-prometheus-dev stop-prometheus-dev restart-prometheus-dev logs-prometheus-dev \
+        start-prometheus stop-prometheus restart-prometheus logs-prometheus \
         start-kafka stop-kafka restart-kafka logs-kafka \
         start-redis stop-redis restart-redis logs-redis \
         start-crawler-dev stop-crawler-dev restart-crawler-dev logs-crawler-dev \
@@ -68,6 +70,16 @@ help:
 	@echo "  $(BLUE)make clean-prod$(NC)				Clean prod containers and volumes"
 	@echo ""
 	@echo "$(GREEN)🗃️  INFRASTRUCTURE SERVICES$(NC)"
+	@echo "  $(CYAN)make start-prometheus-dev$(NC)				Start prometheus-dev service"
+	@echo "  $(CYAN)make stop-prometheus-dev$(NC)				Stop prometheus-dev service"
+	@echo "  $(CYAN)make restart-prometheus-dev$(NC)				Restart prometheus-dev service"
+	@echo "  $(CYAN)make logs-prometheus-dev$(NC)				View prometheus-dev logs"
+	@echo ""
+	@echo "  $(CYAN)make start-prometheus$(NC)				Start prometheus service"
+	@echo "  $(CYAN)make stop-prometheus$(NC)				Stop prometheus service"
+	@echo "  $(CYAN)make restart-prometheus$(NC)				Restart prometheus service"
+	@echo "  $(CYAN)make logs-prometheus$(NC)				View prometheus logs"
+	@echo ""
 	@echo "  $(CYAN)make start-kafka$(NC)				Start Kafka service"
 	@echo "  $(CYAN)make stop-kafka$(NC)				Stop Kafka service"
 	@echo "  $(CYAN)make restart-kafka$(NC)				Restart Kafka service"
@@ -166,7 +178,7 @@ help:
 
 up-dev:
 	@echo "$(GREEN)🚀 Starting development environment...$(NC)"
-	COMPOSE_BAKE=true $(DC_DEV) up --build -d
+	COMPOSE_BAKE=true $(DC_DEV) up --build -d --scale crawler-dev=5
 
 down-dev:
 	@echo "$(RED)🛑 Stopping and removing development containers...$(NC)"
@@ -263,6 +275,38 @@ clean-prod:
 # ============================================================================
 # INFRASTRUCTURE SERVICES
 # ============================================================================
+
+start-prometheus-dev:
+	@echo "$(CYAN)🎯 Starting prometheus-dev service...$(NC)"
+	$(DC_DEV) up -d prometheus-dev
+
+stop-prometheus-dev:
+	@echo "$(CYAN)⏹️  Stopping prometheus-dev service...$(NC)"
+	$(DC_DEV) stop prometheus-dev
+
+restart-prometheus-dev:
+	@echo "$(CYAN)🔄 Restarting prometheus-dev service...$(NC)"
+	$(DC_DEV) restart prometheus-dev
+
+logs-prometheus-dev:
+	@echo "$(CYAN)📋 Viewing prometheus-dev logs...$(NC)"
+	$(DC_DEV) logs -f prometheus-dev
+
+start-prometheus:
+	@echo "$(CYAN)🎯 Starting prometheus service...$(NC)"
+	$(DC_PROD) up -d prometheus
+
+stop-prometheus:
+	@echo "$(CYAN)⏹️  Stopping prometheus service...$(NC)"
+	$(DC_PROD) stop prometheus
+
+restart-prometheus:
+	@echo "$(CYAN)🔄 Restarting prometheus service...$(NC)"
+	$(DC_PROD) restart prometheus
+
+logs-prometheus:
+	@echo "$(CYAN)📋 Viewing prometheus logs...$(NC)"
+	$(DC_PROD) logs -f prometheus
 
 start-kafka:
 	@echo "$(CYAN)🎯 Starting Kafka service...$(NC)"

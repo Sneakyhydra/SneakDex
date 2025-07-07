@@ -57,18 +57,18 @@ Each component can be developed and tested independently. MVP focuses on verifyi
 
 ## 📦 Tech Stack
 
-| Layer                  | Tech                                      |
-|------------------------|-------------------------------------------|
-| Frontend               | Next.js (React + Tailwind CSS)            |
-| API                    | FastAPI (Python)                          |
-| Crawler                | Go                                        |
-| HTML Parser            | Rust (for fast & safe DOM parsing)        |
-| Indexer                | Python (TF-IDF, inverted index)           |
-| Cache                  | Redis                                     |
-| Messaging              | Apache Kafka                              |
-| Containerization       | Docker + Docker Compose                   |
-| Infra Store (future)   | MongoDB/PostgreSQL                        |
-| Monitoring (future)    | Prometheus, Grafana, ELK Stack            |
+| Layer                | Tech                               |
+| -------------------- | ---------------------------------- |
+| Frontend             | Next.js (React + Tailwind CSS)     |
+| API                  | FastAPI (Python)                   |
+| Crawler              | Go                                 |
+| HTML Parser          | Rust (for fast & safe DOM parsing) |
+| Indexer              | Python (TF-IDF, inverted index)    |
+| Cache                | Redis                              |
+| Messaging            | Apache Kafka                       |
+| Containerization     | Docker + Docker Compose            |
+| Infra Store (future) | MongoDB/PostgreSQL                 |
+| Monitoring (future)  | Prometheus, Grafana, ELK Stack     |
 
 ---
 

@@ -12,6 +12,7 @@ rdkafka = { version = "0.36", features = ["cmake-build"] }
 # HTML parsing
 scraper = "0.18.1"
 url = "2.5.0"
+regex = "1.7"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
