@@ -182,7 +182,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 500s
     restart: unless-stopped
 
   parser-dev:
@@ -203,8 +203,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      crawler-dev:
-        condition: service_healthy
     networks:
       - sneakdex-network
       - monitoring
@@ -213,7 +211,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 500s
     restart: unless-stopped
 
   indexer-dev:
