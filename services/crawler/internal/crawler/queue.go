@@ -12,12 +12,17 @@ import (
 )
 
 // feedCollyFromRedisQueue continuously feeds URLs from the Redis pending queue to the Colly collector.
-func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
+func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan chan struct{}) {
 	defer c.Wg.Done()
+	defer close(doneChan)
+
 	c.Log.Info("Starting Redis queue feeder goroutine")
 
 	emptyQueueChecks := 0
 	const maxEmptyChecks = 5
+
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -25,10 +30,10 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector) {
 			c.Log.Info("Redis queue feeder stopping due to context cancellation")
 			collector.Wait()
 			return
-		default:
+		case <-ticker.C:
 			// Check if page processing limit is reached
 			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
-				c.Log.Debug("Max page limit reached, stopping Redis queue feeder")
+				c.Log.Info("Max page limit reached, stopping Redis queue feeder")
 				return
 			}
 

@@ -4,13 +4,15 @@
 //! from Kafka, parses them, and produces structured `ParsedPage` messages
 //! back to another Kafka topic.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
@@ -21,7 +23,7 @@ use crate::parser::HtmlParser;
 pub struct KafkaHandler {
     consumer: StreamConsumer,
     producer: FutureProducer,
-    config: Config,
+    config: Arc<Config>,
 }
 
 impl KafkaHandler {
@@ -33,8 +35,8 @@ impl KafkaHandler {
     /// # Errors
     /// Returns an error if the Kafka consumer or producer cannot be created or
     /// if subscribing to the topic fails.
-    pub async fn new(config: &Config) -> Result<Self> {
-        info!("Starting enhanced HTML parser service");
+    pub async fn new(config: Arc<Config>) -> Result<Self> {
+        info!("Sneakdex Parser Starting...");
         debug!("Configuration: {:?}", config);
 
         // Initialize Kafka consumer.
@@ -51,6 +53,7 @@ impl KafkaHandler {
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", &config.kafka_brokers)
             .set("message.timeout.ms", "5000")
+            .set("compression.type", "snappy")
             .create()
             .context("Failed to create Kafka producer")?;
 
@@ -84,38 +87,67 @@ impl KafkaHandler {
     /// For each message, the HTML payload is parsed using the provided `HtmlParser`
     /// and the result is sent to the parsed-pages Kafka topic.
     pub async fn start_processing(&self, parser: HtmlParser, metrics: Metrics) -> Result<()> {
-        info!("Waiting for messages...");
-        let mut message_count = 0;
+        let semaphore = Arc::new(Semaphore::new(self.config.max_concurrency));
+        info!(
+            "Starting with max {} concurrent workers, waiting for messages...",
+            self.config.max_concurrency
+        );
 
         loop {
-            match self.consumer.recv().await {
-                Ok(message) => {
-                    if message_count % 100 == 0 {
-                        info!(
-                            "Metrics: processed={}, successful={}, failed={}, kafka_ok={}, kafka_fail={}, kafka_err={}",
-                            metrics.pages_processed.load(Ordering::Relaxed),
-                            metrics.pages_successful.load(Ordering::Relaxed),
-                            metrics.pages_failed.load(Ordering::Relaxed),
-                            metrics.kafka_successful.load(Ordering::Relaxed),
-                            metrics.kafka_failed.load(Ordering::Relaxed),
-                            metrics.kafka_errored.load(Ordering::Relaxed),
-                        );
-                    }
-
-                    metrics.inc_pages_processed();
-                    if let Err(e) = self
-                        .process_message(&message, &parser, &mut message_count, &metrics)
-                        .await
-                    {
-                        error!("Error processing message: {}", e);
-                        metrics.inc_pages_failed();
-                    }
-                }
+            let msg = match self.consumer.recv().await {
+                Ok(msg) => msg,
                 Err(e) => {
-                    error!("Error while receiving message: {}", e);
+                    error!("Failed to receive message from Kafka: {}", e);
                     metrics.inc_kafka_errored();
+                    continue;
                 }
-            }
+            };
+
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(permit) => permit,
+                Err(e) => {
+                    error!("Semaphore acquisition failed: {}", e);
+                    continue;
+                }
+            };
+
+            let parser_clone = parser.clone();
+            let metrics_clone = metrics.clone();
+            let producer_clone = self.producer.clone();
+            let config_clone = self.config.clone();
+            let owned_msg = msg.detach();
+
+            // Spawn a task to handle this message
+            tokio::spawn(async move {
+                if metrics_clone.pages_processed.load(Ordering::Relaxed) % 100 == 0 {
+                    info!(
+                    "Metrics: processed={}, successful={}, failed={}, kafka_ok={}, kafka_fail={}, kafka_err={}",
+                    metrics_clone.pages_processed.load(Ordering::Relaxed),
+                    metrics_clone.pages_successful.load(Ordering::Relaxed),
+                    metrics_clone.pages_failed.load(Ordering::Relaxed),
+                    metrics_clone.kafka_successful.load(Ordering::Relaxed),
+                    metrics_clone.kafka_failed.load(Ordering::Relaxed),
+                    metrics_clone.kafka_errored.load(Ordering::Relaxed),
+                );
+                }
+
+                metrics_clone.inc_pages_processed();
+
+                if let Err(e) = KafkaHandler::process_message(
+                    &owned_msg,
+                    &parser_clone,
+                    &metrics_clone,
+                    &producer_clone,
+                    Arc::clone(&config_clone),
+                )
+                .await
+                {
+                    error!("Error processing message: {}", e);
+                    metrics_clone.inc_pages_failed();
+                }
+
+                drop(permit); // release the semaphore slot
+            });
         }
     }
 
@@ -124,18 +156,17 @@ impl KafkaHandler {
     /// Decodes the key and payload, parses the HTML, and sends the parsed result
     /// to the parsed-pages topic.
     async fn process_message(
-        &self,
-        message: &rdkafka::message::BorrowedMessage<'_>,
+        message: &rdkafka::message::OwnedMessage,
         parser: &HtmlParser,
-        message_count: &mut u64,
         metrics: &Metrics,
+        producer: &FutureProducer,
+        config: Arc<Config>,
     ) -> Result<()> {
         // Extract URL (key).
         let url = match message.key() {
             Some(key) => String::from_utf8_lossy(key).to_string(),
             None => {
-                warn!("Received message without URL key, skipping");
-                return Ok(());
+                bail!("No URL key, page skipped");
             }
         };
 
@@ -143,8 +174,7 @@ impl KafkaHandler {
         let payload = match message.payload() {
             Some(data) => data,
             None => {
-                warn!("Received empty message payload, skipping");
-                return Ok(());
+                bail!("No Payload, page skipped");
             }
         };
 
@@ -155,8 +185,14 @@ impl KafkaHandler {
         match parser.parse_html(&html, &url) {
             Ok(parsed) => {
                 metrics.inc_pages_successful();
-                self.send_parsed_page(&url, &parsed, message_count, metrics)
-                    .await?;
+                KafkaHandler::send_parsed_page(
+                    &url,
+                    &parsed,
+                    metrics,
+                    producer,
+                    Arc::clone(&config),
+                )
+                .await?;
             }
             Err(e) => {
                 error!("Failed to parse HTML from {}: {}", url, e);
@@ -169,27 +205,28 @@ impl KafkaHandler {
 
     /// Serialize and send a parsed page to the `parsed-pages` Kafka topic.
     async fn send_parsed_page(
-        &self,
         url: &str,
         parsed: &crate::models::ParsedPage,
-        message_count: &mut u64,
         metrics: &Metrics,
+        producer: &FutureProducer,
+        config: Arc<Config>,
     ) -> Result<()> {
         // Serialize the parsed page to JSON.
         let json_data = serde_json::to_string(parsed).context("Failed to serialize parsed page")?;
 
-        let record = FutureRecord::to(&self.config.kafka_topic_parsed)
+        let record = FutureRecord::to(&config.kafka_topic_parsed)
             .key(url)
             .payload(&json_data);
 
         // Send to Kafka.
-        match self.producer.send(record, Duration::from_secs(0)).await {
+        match producer.send(record, Duration::from_secs(0)).await {
             Ok(_) => {
-                *message_count += 1;
                 metrics.inc_kafka_successful();
                 info!(
                     "Parsed and sent page: {} (words: {}, total: {})",
-                    url, parsed.word_count, *message_count
+                    url,
+                    parsed.word_count,
+                    metrics.pages_processed.load(Ordering::Relaxed)
                 );
             }
             Err((e, _)) => {

@@ -46,4 +46,4 @@ impl From<regex::Error> for ParserError {
             message: format!("Regex error: {}", err),
         }
     }
-} 
+}

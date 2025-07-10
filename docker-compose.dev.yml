@@ -154,11 +154,11 @@ services:
       - REDIS_RETRY_MAX=3
       - START_URLS=https://www.dhruvrishishwar.com,https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com
       - CRAWL_DEPTH=3
-      - MAX_PAGES=500
-      - MAX_CONCURRENCY=64
+      - MAX_PAGES=10000
+      - MAX_CONCURRENCY=16
       - REQUEST_TIMEOUT=10s
-      - REQUEST_DELAY=5ms
-      - MAX_CONTENT_SIZE=2621440 # 2.5 MB
+      - REQUEST_DELAY=50ms
+      - MAX_CONTENT_SIZE=10485760 # 10 MB
       - LOG_LEVEL=info
       - USER_AGENT=Sneakdex/1.0
       - ENABLE_DEBUG=false
@@ -174,6 +174,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      parser-dev:
+        condition: service_healthy
     networks:
       - sneakdex-network
       - monitoring
@@ -182,7 +184,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 500s
+      start_period: 1000s
     restart: unless-stopped
 
   parser-dev:
@@ -193,7 +195,10 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_HTML=raw-html
       - KAFKA_TOPIC_PARSED=parsed-pages
-      - MAX_CONTENT_SIZE=2621440 # 2.5 MB
+      - KAFKA_GROUP_ID=parser-group
+      - MAX_CONCURRENCY=64
+      - MAX_CONTENT_LENGTH=5242880 # 5 MB
+      - MIN_CONTENT_LENGTH=1024 # 1 KB
       - RUST_LOG=info
       - MONITOR_PORT=8080
     volumes:
@@ -201,8 +206,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      crawler-dev:
-        condition: service_started
     networks:
       - sneakdex-network
       - monitoring
@@ -211,7 +214,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 500s
+      start_period: 1000s
     restart: unless-stopped
 
   indexer-dev:
@@ -232,8 +235,6 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      parser-dev:
-        condition: service_started
     networks:
       - sneakdex-network
     restart: unless-stopped

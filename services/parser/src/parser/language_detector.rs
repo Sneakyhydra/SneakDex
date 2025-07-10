@@ -19,6 +19,15 @@ use whatlang::detect;
 /// assert_eq!(lang.as_deref(), Some("en"));
 /// ```
 pub fn detect_language(text: &str) -> Option<String> {
-    // `detect` returns an Option<Info>, which contains `lang()`
-    detect(text).map(|info| info.lang().code().to_string())
+    if text.trim().len() < 20 {
+        return None;
+    }
+
+    detect(text).and_then(|info| {
+        if info.confidence() > 0.8 {
+            Some(info.lang().code().to_string())
+        } else {
+            None
+        }
+    })
 }

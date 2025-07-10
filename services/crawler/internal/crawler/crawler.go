@@ -212,32 +212,19 @@ func (c *Crawler) Start() error {
 	// Increment WaitGroup for the feedCollyFromRedisQueue goroutine.
 	// This ensures the main goroutine waits for it to complete.
 	c.Wg.Add(1)
-	go c.feedCollyFromRedisQueue(collector)
+	doneChan := make(chan struct{})
+	go c.feedCollyFromRedisQueue(collector, doneChan)
 
 	c.Log.Info("Crawler started. Blocking until all crawling activities are complete...")
 
-	// Use a separate goroutine to orchestrate the waiting for Colly and the feeder.
-	// This allows the main `Start` function to simply block until all work is signaled as done.
-	doneChan := make(chan struct{})
-	go func() {
-		defer close(doneChan) // Ensure doneChan is closed when this goroutine exits.
-
-		// First, wait for the feedCollyFromRedisQueue goroutine to exit.
-		// It will exit when its internal conditions (context, max pages + empty queue) are met.
-		c.Log.Info("Waiting for Redis queue feeder goroutine to stop...")
-		c.Wg.Wait() // Wait for all goroutines added to `wg` (primarily feedCollyFromRedisQueue)
-		c.Log.Info("Redis queue feeder goroutine has stopped.")
-
-		// Then, wait for Colly to finish processing all URLs it has been given.
-		// This will only complete once `feedCollyFromRedisQueue` stops feeding it URLs
-		// (either due to context cancellation, max pages, or empty Redis queue).
-		c.Log.Info("Waiting for Colly collector to finish processing its internal queue...")
-		collector.Wait()
-		c.Log.Info("Colly collector finished processing its internal queue.")
-	}()
-
 	// Block the main `Start()` goroutine until all crawling activities are done.
 	<-doneChan
+	// Then, wait for Colly to finish processing all URLs it has been given.
+	// This will only complete once `feedCollyFromRedisQueue` stops feeding it URLs
+	// (either due to context cancellation, max pages, or empty Redis queue).
+	c.Log.Info("Waiting for Colly collector to finish processing its internal queue...")
+	collector.Wait()
+	c.Log.Info("Colly collector finished processing its internal queue.")
 	c.Log.Info("All crawling activities (Colly queue processing and Redis feeder) have completed.")
 
 	// --- End Core Waiting Logic ---
@@ -338,6 +325,7 @@ func (c *Crawler) logMetricsPeriodically() {
 					"redis_errored":    stats["redis_errored"],
 					"uptime_seconds":   fmt.Sprintf("%.2f", stats["uptime_seconds"].(float64)),
 					"pages_per_second": fmt.Sprintf("%.2f", pagesPerSecond),
+					"inflight_pages":   c.GetInFlightPages(),
 				}).Info("Current crawler metrics")
 			case <-c.CShutdown: // Exit loop if shutdown signal is received.
 				c.Log.Info("Stopping periodic metrics logging goroutine.")

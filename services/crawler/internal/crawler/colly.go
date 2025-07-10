@@ -26,6 +26,7 @@ func (c *Crawler) setupCollyCollector() *colly.Collector {
 func (c *Crawler) createBaseCollector() *colly.Collector {
 	options := []colly.CollectorOption{
 		colly.MaxDepth(c.Cfg.CrawlDepth),
+		colly.Async(true),
 		colly.UserAgent(c.Cfg.UserAgent),
 		colly.ParseHTTPErrorResponse(),
 		colly.DetectCharset(),

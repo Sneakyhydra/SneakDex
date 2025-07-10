@@ -4,35 +4,42 @@
 //! an HTML document, including headings, links, images, and main content.
 
 use once_cell::sync::Lazy;
-use scraper::{Html, Selector};
 use readability::extractor;
+use scraper::{Html, Selector};
 use std::io::Cursor;
 use url::Url;
 
-use crate::models::{ImageData, LinkData};
 use super::text_utils::clean_text;
+use crate::models::{Heading, ImageData, LinkData};
 
 // Precompiled selectors for performance
 
-/// Selector for headings <h1>-<h6>
+/// Selector for headings h1 - h6
 static HEADING_SELECTOR: Lazy<Selector> =
     Lazy::new(|| Selector::parse("h1, h2, h3, h4, h5, h6").unwrap());
 
-/// Selector for <a href>
-static LINK_SELECTOR: Lazy<Selector> =
-    Lazy::new(|| Selector::parse("a[href]").unwrap());
+/// Selector for "a href"
+static LINK_SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("a[href]").unwrap());
 
-/// Selector for <img src>
-static IMG_SELECTOR: Lazy<Selector> =
-    Lazy::new(|| Selector::parse("img[src]").unwrap());
+/// Selector for "img src"
+static IMG_SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("img[src]").unwrap());
 
+/// Selector for "body" fallback
+static BODY_SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("body").unwrap());
 
 /// Extracts and cleans all `<h1>`–`<h6>` headings from the document.
-pub fn extract_headings(document: &Html) -> Vec<String> {
+pub fn extract_headings(document: &Html) -> Vec<Heading> {
     document
         .select(&HEADING_SELECTOR)
-        .map(|element| clean_text(&element.text().collect::<String>()))
-        .filter(|text| !text.is_empty())
+        .filter_map(|element| {
+            let tag_name = element.value().name(); // e.g. "h1"
+            let level = tag_name.strip_prefix('h')?.parse::<u8>().ok()?;
+            let text = clean_text(&element.text().collect::<String>());
+            if text.is_empty() {
+                return None;
+            }
+            Some(Heading { level, text })
+        })
         .collect()
 }
 
@@ -60,21 +67,27 @@ pub fn extract_links(document: &Html, base_url: &str) -> Vec<LinkData> {
             }
 
             let resolved_url = if let Some(base) = &base {
-                base.join(href).map(|u| u.to_string()).unwrap_or_else(|_| href.to_string())
+                base.join(href)
+                    .map(|mut u| {
+                        u.set_fragment(None);
+                        u
+                    })
+                    .unwrap_or_else(|_| Url::parse(href).unwrap_or_else(|_| base.clone()))
             } else {
-                href.to_string()
+                Url::parse(href).unwrap_or_else(|_| Url::parse("about:blank").unwrap())
             };
 
-            let is_external = if let (Ok(base_url), Ok(link_url)) =
-                (Url::parse(base_url), Url::parse(&resolved_url))
-            {
-                base_url.domain() != link_url.domain()
-            } else {
-                false
-            };
+            let resolved_url_str = resolved_url.to_string();
+
+            let is_external =
+                if let (Some(base), Ok(link_url)) = (base.clone(), Url::parse(&resolved_url_str)) {
+                    base.domain() != link_url.domain()
+                } else {
+                    false
+                };
 
             Some(LinkData {
-                url: resolved_url,
+                url: resolved_url_str,
                 text,
                 is_external,
             })
@@ -101,13 +114,18 @@ pub fn extract_images(document: &Html, base_url: &str) -> Vec<ImageData> {
             let title = element.value().attr("title").map(|s| s.to_string());
 
             let resolved_src = if let Some(base) = &base {
-                base.join(src).map(|u| u.to_string()).unwrap_or_else(|_| src.to_string())
+                base.join(src)
+                    .map(|mut u| {
+                        u.set_fragment(None);
+                        u
+                    })
+                    .unwrap_or_else(|_| Url::parse(src).unwrap_or_else(|_| base.clone()))
             } else {
-                src.to_string()
+                Url::parse(src).unwrap_or_else(|_| Url::parse("about:blank").unwrap())
             };
 
             Some(ImageData {
-                src: resolved_src,
+                src: resolved_src.to_string(),
                 alt,
                 title,
             })
@@ -116,6 +134,8 @@ pub fn extract_images(document: &Html, base_url: &str) -> Vec<ImageData> {
 }
 
 /// Extracts the main readable content from the page using `readability`.
+///
+/// If readability fails, falls back to body text.
 ///
 /// # Arguments
 /// - `document`: Parsed HTML document.
@@ -137,12 +157,18 @@ pub fn extract_main_content(document: &Html, base_url: &str) -> String {
     };
 
     // Run readability
-    match extractor::extract(&mut reader, &url) {
-        Ok(article) => {
-            // Convert readable HTML content to plain text
-            let doc = Html::parse_fragment(&article.content);
-            clean_text(&doc.root_element().text().collect::<String>())
+    if let Ok(article) = extractor::extract(&mut reader, &url) {
+        let doc = Html::parse_fragment(&article.content);
+        let text = clean_text(&doc.root_element().text().collect::<String>());
+        if !text.is_empty() {
+            return text;
         }
-        Err(_) => String::new(),
     }
+
+    // Fallback to raw body text
+    if let Some(body) = document.select(&BODY_SELECTOR).next() {
+        return clean_text(&body.text().collect::<String>());
+    }
+
+    String::new()
 }

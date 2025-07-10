@@ -4,6 +4,7 @@
 //! including title, meta tags, main content, links, images, headings, etc.
 
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use scraper::{Html, Selector};
 
 mod extractors;
@@ -20,6 +21,7 @@ use crate::models::ParsedPage;
 /// HTML parser that extracts structured data from a page.
 ///
 /// Initialized with a `Config` to enforce content limits & settings.
+#[derive(Clone)]
 pub struct HtmlParser {
     config: Config,
 }
@@ -47,9 +49,7 @@ impl HtmlParser {
         let description = self.extract_meta_description(&document);
         let meta_keywords = self.extract_meta_keywords(&document);
         let canonical_url = self.extract_canonical_url(&document);
-        let schema_data = self.extract_schema_data(&document);
 
-        // main content now requires the URL for readability
         let cleaned_text = extract_main_content(&document, url);
 
         // Validate minimum content length
@@ -67,14 +67,10 @@ impl HtmlParser {
         let word_count = cleaned_text.split_whitespace().count();
         let language = detect_language(&cleaned_text);
 
-        // fallback full body text (not readability-cleaned)
-        let body_text = self.extract_body_text(&document);
-
         Ok(ParsedPage {
             url: url.to_string(),
             title,
             description,
-            body_text,
             cleaned_text,
             headings,
             links,
@@ -83,23 +79,15 @@ impl HtmlParser {
             language,
             word_count,
             meta_keywords,
-            schema_data,
             timestamp: chrono::Utc::now(),
             content_type: "text/html".to_string(),
             encoding: "utf-8".to_string(),
-            reading_time: None,
-            og_tags: None,
-            twitter_cards: None,
-            robots_meta: None,
-            readability_score: None,
-            additional_metadata: std::collections::HashMap::new(),
         })
     }
 
     /// Extracts the `<title>` tag.
     fn extract_title(&self, document: &Html) -> String {
-        static TITLE_SELECTOR: once_cell::sync::Lazy<Selector> =
-            once_cell::sync::Lazy::new(|| Selector::parse("title").unwrap());
+        static TITLE_SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("title").unwrap());
 
         document
             .select(&TITLE_SELECTOR)
@@ -110,8 +98,8 @@ impl HtmlParser {
 
     /// Extracts `<meta name="description">`.
     fn extract_meta_description(&self, document: &Html) -> Option<String> {
-        static DESC_SELECTOR: once_cell::sync::Lazy<Selector> =
-            once_cell::sync::Lazy::new(|| Selector::parse("meta[name='description']").unwrap());
+        static DESC_SELECTOR: Lazy<Selector> =
+            Lazy::new(|| Selector::parse("meta[name='description']").unwrap());
 
         document
             .select(&DESC_SELECTOR)
@@ -122,8 +110,8 @@ impl HtmlParser {
 
     /// Extracts `<meta name="keywords">`.
     fn extract_meta_keywords(&self, document: &Html) -> Option<String> {
-        static KEYWORDS_SELECTOR: once_cell::sync::Lazy<Selector> =
-            once_cell::sync::Lazy::new(|| Selector::parse("meta[name='keywords']").unwrap());
+        static KEYWORDS_SELECTOR: Lazy<Selector> =
+            Lazy::new(|| Selector::parse("meta[name='keywords']").unwrap());
 
         document
             .select(&KEYWORDS_SELECTOR)
@@ -134,38 +122,13 @@ impl HtmlParser {
 
     /// Extracts `<link rel="canonical">`.
     fn extract_canonical_url(&self, document: &Html) -> Option<String> {
-        static CANONICAL_SELECTOR: once_cell::sync::Lazy<Selector> =
-            once_cell::sync::Lazy::new(|| Selector::parse("link[rel='canonical']").unwrap());
+        static CANONICAL_SELECTOR: Lazy<Selector> =
+            Lazy::new(|| Selector::parse("link[rel='canonical']").unwrap());
 
         document
             .select(&CANONICAL_SELECTOR)
             .next()
             .and_then(|e| e.value().attr("href"))
             .map(|href| href.to_string())
-    }
-
-    /// Extracts JSON-LD `<script type="application/ld+json">`.
-    fn extract_schema_data(&self, document: &Html) -> Option<String> {
-        static SCHEMA_SELECTOR: once_cell::sync::Lazy<Selector> =
-            once_cell::sync::Lazy::new(|| {
-                Selector::parse("script[type='application/ld+json']").unwrap()
-            });
-
-        document
-            .select(&SCHEMA_SELECTOR)
-            .next()
-            .map(|e| e.inner_html())
-    }
-
-    /// Fallback: extracts all visible text from `<body>`.
-    fn extract_body_text(&self, document: &Html) -> String {
-        static BODY_SELECTOR: once_cell::sync::Lazy<Selector> =
-            once_cell::sync::Lazy::new(|| Selector::parse("body").unwrap());
-
-        document
-            .select(&BODY_SELECTOR)
-            .next()
-            .map(|e| clean_text(&e.text().collect::<String>()))
-            .unwrap_or_default()
     }
 }

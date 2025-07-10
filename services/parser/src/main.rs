@@ -26,25 +26,25 @@ use parser::HtmlParser;
 /// processing messages.
 async fn run() -> Result<()> {
     // Load config from environment; fall back to defaults if missing.
-    let config: Config = envy::from_env().unwrap_or_default();
+    let config: Arc<Config> = Arc::new(envy::from_env().unwrap_or_default());
     config.init_logging();
 
     // Initialize Kafka handler and HTML parser.
-    let kafka_handler = Arc::new(KafkaHandler::new(&config).await?);
+    let kafka_handler = Arc::new(KafkaHandler::new(Arc::clone(&config)).await?);
     let parser = HtmlParser::new(&config);
 
     // Initialize metrics
     let metrics = Metrics::new();
 
     // Start monitor server in background
-    let monitor_port = config.monitor_port as u16;
+    let monitor_port = config.monitor_port;
     let metrics_clone = metrics.clone();
     let kafka_clone = kafka_handler.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             if let Err(e) = start_monitor_server(monitor_port, metrics_clone, kafka_clone).await {
-                error!("Health server failed: {}", e);
+                error!("Monitor server failed: {}", e);
             }
         });
     });

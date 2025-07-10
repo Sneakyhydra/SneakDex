@@ -1,242 +1,273 @@
-# Parser Service
+# 📝 Sneakdex HTML Parser Service
 
-A high-performance HTML parsing service for the SneakDex search engine, built in Rust.
+A high-performance HTML parsing service that extracts structured, cleaned content from crawled web pages. Built with Rust for speed, safety, and reliability.
 
-## Features
+## 📋 Table of Contents
 
-- **HTML Content Extraction**: Extracts structured data from HTML pages including titles, meta descriptions, headings, links, and images
-- **Readability Processing**: Uses the `readability` crate to extract main content from web pages
-- **Language Detection**: Automatically detects the language of page content
-- **Kafka Integration**: Consumes raw HTML from Kafka and produces structured parsed pages
-- **Health Monitoring**: Built-in health checks and metrics endpoints
-- **Error Handling**: Comprehensive error handling with custom error types
-- **Configuration**: Flexible configuration via environment variables
-- **Docker Support**: Production-ready Docker containers
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [API Endpoints](#api-endpoints)
+- [Monitoring & Observability](#monitoring--observability)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+- [Security](#security)
 
-## Architecture
+## 🔍 Overview
+
+The Sneakdex HTML Parser processes raw HTML documents from Kafka and produces clean, structured data suitable for indexing or downstream analysis. It enforces strict size/content validation, extracts readable text and metadata, and detects document language.
+
+### Key Capabilities
+
+- **HTML Parsing**: Extracts title, meta tags, readable content, links, images, and headings
+- **Content Cleaning**: Normalizes whitespace & removes noise
+- **Language Detection**: Identifies document language (en, fr, etc.)
+- **Kafka Integration**: Consumes raw HTML, produces structured JSON
+- **Monitoring**: Health checks & Prometheus-compatible metrics
+
+## 🏗️ Architecture
 
 ```
-Kafka (raw-html) → Parser Service → Kafka (parsed-pages)
-                     ↓
-              Health Endpoints
+[Crawler] → Kafka (raw-html) → [Parser Service] → Kafka (parsed-pages) → [Indexer]
 ```
 
-## Data Model
+### Components
 
-The parser extracts the following structured data from HTML pages:
+- **📄 HTML Parser**: Uses scraper & readability to extract meaningful text
+- **🔎 Language Detector**: Uses whatlang for language inference
+- **🧽 Text Utilities**: Cleans & normalizes raw text
+- **📤 Kafka Client**: Robust consumer/producer using rdkafka
+- **📊 Monitor Server**: Health & metrics endpoints via actix-web
 
-- **Basic Metadata**: URL, title, description, keywords, canonical URL
-- **Content**: Main text content, cleaned text, word count, reading time
-- **Structure**: Headings (H1-H6), links (internal/external), images
-- **SEO Data**: Open Graph tags, Twitter Cards, schema.org structured data
-- **Technical**: Content type, encoding, language detection, readability score
+## ✨ Features
 
-## Quick Start
+### Core Functionality
 
-### Prerequisites
+- ✅ Validates size & cleans content
+- ✅ Detects main readable text
+- ✅ Extracts metadata: title, description, canonical URL
+- ✅ Detects headings (h1–h6)
+- ✅ Extracts internal & external links
+- ✅ Detects images & their URLs
+- ✅ Detects language & word count
 
-- Rust 1.82+
-- Kafka cluster
-- Docker (optional)
+### Reliability & Performance
 
-### Local Development
+- ✅ Concurrent processing with backpressure
+- ✅ Graceful shutdown with cleanup
+- ✅ Robust error handling with retries
+- ✅ Memory-safe & efficient with Rust
 
-1. **Clone and navigate to the parser service:**
-   ```bash
-   cd services/parser
-   ```
+### Monitoring & Operations
 
-2. **Set environment variables:**
-   ```bash
-   export KAFKA_BROKERS=localhost:9092
-   export KAFKA_TOPIC_HTML=raw-html
-   export KAFKA_TOPIC_PARSED=parsed-pages
-   export RUST_LOG=debug
-   ```
+- ✅ Liveness & readiness probes
+- ✅ Prometheus metrics (/metrics)
+- ✅ Structured JSON logs
 
-3. **Run the service:**
-   ```bash
-   cargo run
-   ```
+## 🔧 Prerequisites
 
-### Docker Development
+- **Rust**: ≥ 1.70
+- **Kafka**: ≥ 3.x
+- **Docker**: optional for Kafka & deployment
+- **Memory**: ≥ 512MB per instance
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+| Variable             | Default        | Description                       |
+| -------------------- | -------------- | --------------------------------- |
+| `KAFKA_BROKERS`      | `kafka:9092`   | Kafka broker list                 |
+| `KAFKA_TOPIC_HTML`   | `raw-html`     | Input topic with raw HTML         |
+| `KAFKA_TOPIC_PARSED` | `parsed-pages` | Output topic with parsed pages    |
+| `KAFKA_GROUP_ID`     | `parser-group` | Consumer group ID                 |
+| `MAX_CONCURRENCY`    | `8`            | Max concurrent workers            |
+| `MAX_CONTENT_LENGTH` | `5000000`      | Max page size in bytes            |
+| `MIN_CONTENT_LENGTH` | `100`          | Min acceptable text length        |
+| `MONITOR_PORT`       | `8080`         | Health & metrics HTTP port        |
+| `RUST_LOG`           | `info`         | Log level (info,debug,warn,error) |
+
+### Example .env
+
+```env
+KAFKA_BROKERS=kafka:9092
+KAFKA_TOPIC_HTML=raw-html
+KAFKA_TOPIC_PARSED=parsed-pages
+KAFKA_GROUP_ID=parser-group
+MAX_CONCURRENCY=8
+MAX_CONTENT_LENGTH=5000000
+MIN_CONTENT_LENGTH=100
+MONITOR_PORT=8080
+RUST_LOG=info
+```
+
+## 🚀 Usage
+
+### Build & Run Locally
 
 ```bash
-# Build and run with Docker Compose
-docker-compose -f docker-compose.dev.yml up parser
-
-# Or build manually
-docker build -f Dockerfile.dev -t parser:dev .
-docker run -p 8080:8080 parser:dev
+cargo build --release
+RUST_LOG=info ./target/release/parser
 ```
 
-### Production Deployment
+Or run in debug:
 
 ```bash
-# Build production image
-docker build -t parser:latest .
-
-# Run with environment variables
-docker run -d \
-  -e KAFKA_BROKERS=kafka:9092 \
-  -e KAFKA_TOPIC_HTML=raw-html \
-  -e KAFKA_TOPIC_PARSED=parsed-pages \
-  -e RUST_LOG=info \
-  -p 8080:8080 \
-  parser:latest
+cargo run
 ```
 
-## Configuration
+### Docker Compose Example
 
-| Environment Variable | Default        | Description                         |
-| -------------------- | -------------- | ----------------------------------- |
-| `KAFKA_BROKERS`      | `kafka:9092`   | Kafka bootstrap servers             |
-| `KAFKA_TOPIC_HTML`   | `raw-html`     | Topic to consume raw HTML from      |
-| `KAFKA_TOPIC_PARSED` | `parsed-pages` | Topic to publish parsed pages to    |
-| `KAFKA_GROUP_ID`     | `parser-group` | Kafka consumer group ID             |
-| `KAFKA_RETRY_MAX`    | `3`            | Maximum Kafka retry attempts        |
-| `MAX_CONCURRENCY`    | `16`           | Maximum concurrent parsing tasks    |
-| `MAX_CONTENT_LENGTH` | `5000000`      | Maximum HTML content size (bytes)   |
-| `MIN_CONTENT_LENGTH` | `100`          | Minimum content length (characters) |
-| `RUST_LOG`           | `info`         | Logging level                       |
-| `MONITOR_PORT`       | `8080`         | Health check server port            |
+Add this to your `docker-compose.yml` alongside Kafka & other services:
 
-## Health Checks
+```yaml
+parser-dev:
+    build:
+      context: ./services/parser
+      dockerfile: Dockerfile.dev
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_HTML=raw-html
+      - KAFKA_TOPIC_PARSED=parsed-pages
+      - KAFKA_GROUP_ID=parser-group
+      - MAX_CONCURRENCY=64
+      - MAX_CONTENT_LENGTH=5242880 # 5 MB
+      - MIN_CONTENT_LENGTH=1024 # 1 KB
+      - RUST_LOG=info
+      - MONITOR_PORT=8080
+    volumes:
+      - ./services/parser:/app
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - sneakdex-network
+      - monitoring
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 1000s
+    restart: unless-stopped
+```
 
-The service exposes several health check endpoints:
+## 🔗 API Endpoints
 
-- **`GET /health`**: Overall service health with metrics
-- **`GET /ready`**: Readiness probe (checks Kafka connectivity)
-- **`GET /live`**: Liveness probe
-- **`GET /metrics`**: Prometheus-compatible metrics
+### Health Check
 
-### Example Health Response
+**GET** `/health`
+
+```bash
+curl http://localhost:8080/health
+```
+
+Sample Response:
 
 ```json
 {
   "status": "healthy",
-  "uptime_seconds": 3600,
-  "messages_processed": 1500,
-  "errors_total": 5,
-  "last_message_age_seconds": 30
+  "uptime_seconds": 1234,
+  "pages_processed": 456,
+  "pages_failed": 7,
+  "kafka_errored": 1,
+  "last_message_age_seconds": 2,
+  "kafka_connected": true
 }
 ```
 
-## Testing
+### Liveness
 
-Run the test suite:
+**GET** `/live`
 
-```bash
-# Run all tests
-cargo test
-
-# Run tests with output
-cargo test -- --nocapture
-
-# Run specific test
-cargo test test_extract_title
-
-# Run tests with coverage (requires cargo-tarpaulin)
-cargo tarpaulin --out Html
-```
-
-## Performance
-
-The parser service is designed for high performance:
-
-- **Async Processing**: Uses Tokio for non-blocking I/O
-- **Connection Pooling**: Efficient Kafka connection management
-- **Memory Efficient**: Streaming HTML parsing with size limits
-- **Concurrent Processing**: Configurable concurrency limits
-- **Optimized Dependencies**: Uses high-performance Rust crates
-
-### Benchmarks
-
-Typical performance metrics:
-- **Throughput**: 1000+ pages/second (depending on content size)
-- **Memory Usage**: ~50MB baseline + ~1MB per concurrent task
-- **Latency**: <100ms average parsing time
-
-## Error Handling
-
-The service implements comprehensive error handling:
-
-- **Content Validation**: Size limits, content type validation
-- **Kafka Errors**: Retry logic, dead letter queue support
-- **Parsing Errors**: Graceful degradation, detailed error messages
-- **Monitoring**: Error metrics and alerting
-
-## Development
-
-### Project Structure
-
-```
-src/
-├── main.rs              # Application entry point
-├── config.rs            # Configuration management
-├── models.rs            # Data models and structures
-├── error.rs             # Error types and handling
-├── health.rs            # Health checks and monitoring
-├── kafka_client.rs      # Kafka consumer/producer
-└── parser/
-    ├── mod.rs           # Main parser logic
-    ├── extractors.rs    # HTML content extractors
-    ├── text_utils.rs    # Text processing utilities
-    ├── language_detector.rs # Language detection
-    └── tests.rs         # Comprehensive test suite
-```
-
-### Adding New Extractors
-
-1. Add extraction logic to `src/parser/extractors.rs`
-2. Update the `ParsedPage` model in `src/models.rs`
-3. Add tests in `src/parser/tests.rs`
-4. Update the main parser in `src/parser/mod.rs`
-
-### Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
-
-## Troubleshooting
-
-### Common Issues
-
-**Kafka Connection Errors**
-- Verify Kafka brokers are accessible
-- Check network connectivity
-- Ensure topics exist and have proper permissions
-
-**High Memory Usage**
-- Reduce `MAX_CONCURRENCY` setting
-- Increase `MAX_CONTENT_LENGTH` limit
-- Monitor for memory leaks
-
-**Slow Processing**
-- Check Kafka consumer lag
-- Monitor system resources
-- Consider scaling horizontally
-
-### Logs
-
-Enable debug logging for troubleshooting:
-
-```bash
-export RUST_LOG=debug
-cargo run
-```
+Returns HTTP 200 OK if service is alive.
 
 ### Metrics
 
-Monitor service health via metrics endpoint:
+**GET** `/metrics`
 
-```bash
-curl http://localhost:8080/metrics
+Prometheus-formatted metrics.
+
+## 📊 Monitoring & Observability
+
+### Metrics Exposed
+
+- `pages_processed_total`
+- `pages_failed_total`
+- `kafka_successful_total`
+- `parser_uptime_seconds`
+- `content_too_large_total`
+- `content_too_short_total`
+
+### Sample Prometheus Queries
+
+```promql
+rate(pages_processed_total[5m])
+pages_failed_total / pages_processed_total * 100
+up{job="parser"} == 0
 ```
 
-## License
+## 🛠️ Deployment
 
-This project is part of the SneakDex search engine and is licensed under the MIT License. 
+### Scaling
+
+- Horizontal scaling supported — use separate Kafka group IDs if needed
+- Monitor CPU & memory, adjust `MAX_CONCURRENCY` accordingly
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+| Symptom                      | Solution                                     |
+| ---------------------------- | -------------------------------------------- |
+| Kafka connection errors      | Check `KAFKA_BROKERS` & Kafka cluster health |
+| Content rejected (too large) | Increase `MAX_CONTENT_LENGTH`                |
+| Content rejected (too short) | Lower `MIN_CONTENT_LENGTH`                   |
+| High failure rate            | Review logs (`RUST_LOG=debug`)               |
+
+### Debugging
+
+Enable detailed logs:
+
+```bash
+RUST_LOG=debug ./parser
+```
+
+## 🔒 Security
+
+- Enforces maximum & minimum content size
+- Validates Kafka payloads
+- Does not execute or render untrusted HTML
+- Runs as a non-root user when containerized
+
+## 📄 Sample ParsedPage Output
+
+```json
+{
+  "url": "https://example.com",
+  "title": "Example Domain",
+  "description": "Illustrative example domain.",
+  "cleaned_text": "Example Domain This domain is for use in illustrative examples.",
+  "headings": [
+    { "level": 1, "text": "Example Domain" }
+  ],
+  "links": [
+    { "url": "https://www.iana.org/domains/example", "text": "More information.", "is_external": true }
+  ],
+  "images": [],
+  "canonical_url": null,
+  "language": "en",
+  "word_count": 42,
+  "meta_keywords": null,
+  "timestamp": "2025-07-10T12:34:56Z",
+  "content_type": "text/html",
+  "encoding": "utf-8"
+}
+```
+
+## 📜 License
+
+MIT — feel free to use & contribute.

@@ -1,7 +1,7 @@
 //! Configuration for the parser service.
 //!
 //! Defines the `Config` struct and its defaults, which control Kafka topics,
-//! concurrency limits, logging, content size constraints, etc.
+//! number of workers, logging, content size constraints, etc.
 //!
 //! Can be deserialized from a config file or environment variables using `serde`.
 
@@ -16,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 /// Example:
 /// ```toml
 /// kafka_brokers = "localhost:9092"
-/// max_concurrency = 32
+/// max_concurrency = 8
 /// ```
 ///
 #[derive(Debug, Deserialize, Clone)]
@@ -37,6 +37,10 @@ pub struct Config {
     #[serde(default = "default_kafka_group_id")]
     pub kafka_group_id: String,
 
+    /// Number of workers.
+    #[serde(default = "default_max_concurrency")]
+    pub max_concurrency: usize,
+
     /// Maximum allowed content length (in bytes) for a page.
     #[serde(default = "default_max_content_length")]
     pub max_content_length: usize,
@@ -51,7 +55,7 @@ pub struct Config {
 
     /// Port to expose monitoring/health endpoints on.
     #[serde(default = "default_monitor_port")]
-    pub monitor_port: usize,
+    pub monitor_port: u16,
 }
 
 /// Provides default values for `Config`.
@@ -62,6 +66,7 @@ impl Default for Config {
             kafka_topic_html: default_kafka_topic_html(),
             kafka_topic_parsed: default_kafka_topic_parsed(),
             kafka_group_id: default_kafka_group_id(),
+            max_concurrency: default_max_concurrency(),
             max_content_length: default_max_content_length(),
             min_content_length: default_min_content_length(),
             rust_log: default_log_level(),
@@ -102,6 +107,10 @@ fn default_kafka_group_id() -> String {
     "parser-group".to_string()
 }
 
+fn default_max_concurrency() -> usize {
+    8
+}
+
 fn default_max_content_length() -> usize {
     5_000_000
 }
@@ -114,6 +123,6 @@ fn default_log_level() -> String {
     "info".to_string()
 }
 
-fn default_monitor_port() -> usize {
+fn default_monitor_port() -> u16 {
     8080
 }

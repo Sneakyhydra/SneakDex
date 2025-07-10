@@ -1,6 +1,6 @@
 //! Health check and monitoring for the parser service.
 //!
-//! Provides HTTP endpoints for health checks, readiness probes, and basic metrics.
+//! Provides HTTP endpoints for liveness, health checks, and basic metrics.
 
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use serde::Serialize;
@@ -81,14 +81,6 @@ struct HealthResponse {
     kafka_connected: bool,
 }
 
-/// Readiness check response.
-#[derive(Serialize)]
-struct ReadinessResponse {
-    status: String,
-    kafka_connected: bool,
-    ready: bool,
-}
-
 /// Health check endpoint.
 #[get("/health")]
 async fn health(
@@ -108,32 +100,17 @@ async fn health(
     let kafka_ok = kafka.is_connected().await;
 
     let response = HealthResponse {
-        status: "healthy".to_string(),
+        status: if kafka_ok {
+            "healthy".to_string()
+        } else {
+            "not_healthy".to_string()
+        },
         uptime_seconds: uptime,
-        pages_processed: pages_processed,
-        pages_failed: pages_failed,
-        kafka_errored: kafka_errored,
+        pages_processed,
+        pages_failed,
+        kafka_errored,
         last_message_age_seconds: last_message_age,
         kafka_connected: kafka_ok,
-    };
-
-    HttpResponse::Ok().json(response)
-}
-
-/// Readiness check endpoint — actually checks Kafka.
-#[get("/ready")]
-async fn ready(kafka: web::Data<Arc<KafkaHandler>>) -> impl Responder {
-    let kafka_ok = kafka.is_connected().await;
-    info!("Kafka connection check: {}", kafka_ok);
-
-    let response = ReadinessResponse {
-        status: if kafka_ok {
-            "ready".to_string()
-        } else {
-            "not_ready".to_string()
-        },
-        kafka_connected: kafka_ok,
-        ready: kafka_ok,
     };
 
     HttpResponse::Ok().json(response)
@@ -152,6 +129,12 @@ async fn live() -> impl Responder {
 #[get("/metrics")]
 async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
     let uptime = metrics.start_time.elapsed().as_secs();
+    let last_message_age = {
+        let last_time = metrics.last_message_time.read().await;
+        last_time
+            .map(|time| time.elapsed().as_secs() as i64)
+            .unwrap_or(-1)
+    };
 
     let metrics_text = format!(
         "# HELP parser_pages_processed Total pages processed\n\
@@ -178,6 +161,10 @@ async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
          # TYPE parser_kafka_errored counter\n\
          parser_kafka_errored {}\n\
          \n\
+         # HELP parser_last_message_age Last message age in seconds\n\
+         # TYPE parser_last_message_age gauge\n\
+         parser_last_message_age {}\n\
+         \n\
          # HELP parser_uptime_seconds Service uptime in seconds\n\
          # TYPE parser_uptime_seconds gauge\n\
          parser_uptime_seconds {}\n",
@@ -187,6 +174,7 @@ async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
         metrics.kafka_successful.load(Ordering::Relaxed),
         metrics.kafka_failed.load(Ordering::Relaxed),
         metrics.kafka_errored.load(Ordering::Relaxed),
+        last_message_age,
         uptime,
     );
 
@@ -197,7 +185,7 @@ async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
 
 #[get("/")]
 async fn index() -> impl Responder {
-    HttpResponse::Ok().body("Parser monitor is running. See /health, /ready, /live, /metrics.")
+    HttpResponse::Ok().body("Parser monitor is running. See /health, /live, /metrics.")
 }
 
 /// Start the monitor server, with metrics & kafka checker.
@@ -216,7 +204,6 @@ pub async fn start_monitor_server(
             .app_data(metrics_data.clone())
             .app_data(kafka_data.clone())
             .service(health)
-            .service(ready)
             .service(live)
             .service(metrics_endpoint)
             .service(index)
