@@ -119,7 +119,7 @@ func New(cfg *config.Config, log *logrus.Logger) (*Crawler, error) {
 	// SetSkipDNSCheck to 'false' means DNS resolution will be performed for each URL.
 	// Setting it to 'true' would skip DNS checks, which is faster but less safe
 	// as it could allow connections to unresolvable or malicious IPs.
-	crawler.UrlValidator.SetSkipDNSCheck(false)
+	crawler.UrlValidator.SetSkipDNSCheck(true)
 	crawler.UrlValidator.SetAllowPrivateIPs(false) // Disallow crawling of private IP addresses.
 	crawler.UrlValidator.SetAllowLoopback(false)   // Disallow crawling of loopback addresses (e.g., 127.0.0.1).
 

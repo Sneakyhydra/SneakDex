@@ -155,9 +155,9 @@ services:
       - START_URLS=https://www.dhruvrishishwar.com,https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com
       - CRAWL_DEPTH=3
       - MAX_PAGES=500
-      - MAX_CONCURRENCY=16
+      - MAX_CONCURRENCY=64
       - REQUEST_TIMEOUT=10s
-      - REQUEST_DELAY=50ms
+      - REQUEST_DELAY=5ms
       - MAX_CONTENT_SIZE=2621440 # 2.5 MB
       - LOG_LEVEL=info
       - USER_AGENT=Sneakdex/1.0
@@ -193,9 +193,7 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_HTML=raw-html
       - KAFKA_TOPIC_PARSED=parsed-pages
-      - KAFKA_RETRY_MAX=3
-      - MAX_CONCURRENCY=4
-      - MAX_CONTENT_SIZE=1048576 # 1 MB
+      - MAX_CONTENT_SIZE=2621440 # 2.5 MB
       - RUST_LOG=info
       - MONITOR_PORT=8080
     volumes:
@@ -203,6 +201,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      crawler-dev:
+        condition: service_started
     networks:
       - sneakdex-network
       - monitoring

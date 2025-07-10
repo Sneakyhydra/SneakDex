@@ -178,7 +178,7 @@ help:
 
 up-dev:
 	@echo "$(GREEN)🚀 Starting development environment...$(NC)"
-	COMPOSE_BAKE=true $(DC_DEV) up --build -d --scale crawler-dev=5
+	COMPOSE_BAKE=true $(DC_DEV) up --build -d
 
 down-dev:
 	@echo "$(RED)🛑 Stopping and removing development containers...$(NC)"

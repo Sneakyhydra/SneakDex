@@ -26,3 +26,10 @@ scrape_configs:
           - "sneakdex-crawler-dev-3:8080"
           - "sneakdex-crawler-dev-4:8080"
           - "sneakdex-crawler-dev-5:8080"
+
+  - job_name: "parser-dev"
+    static_configs:
+      - targets:
+          - "sneakdex-parser-dev-1:8080"
+          - "sneakdex-parser-dev-2:8080"
+          - "sneakdex-parser-dev-3:8080"

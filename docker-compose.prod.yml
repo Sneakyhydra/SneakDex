@@ -185,9 +185,7 @@ services:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_HTML=raw-html
       - KAFKA_TOPIC_PARSED=parsed-pages
-      - KAFKA_RETRY_MAX=3
-      - MAX_CONCURRENCY=16
-      - MAX_CONTENT_SIZE=1048576 # 1 MB
+      - MAX_CONTENT_SIZE=2621440 # 2.5 MB
       - RUST_LOG=info
       - MONITOR_PORT=8080
     depends_on:
