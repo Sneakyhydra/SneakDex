@@ -228,7 +228,7 @@ clean-dev:
 
 up-prod:
 	@echo "$(GREEN)🚀 Starting production environment...$(NC)"
-	COMPOSE_BAKE=true $(DC_PROD) up --build -d --scale crawler=5
+	COMPOSE_BAKE=true $(DC_PROD) up --build -d
 
 down-prod:
 	@echo "$(RED)🛑 Stopping and removing production containers...$(NC)"
