@@ -36,7 +36,6 @@ Query API (FastAPI + Redis Cache)
 ↓
 Frontend (Next.js)
 
-
 Each component can be developed and tested independently. MVP focuses on verifying the full data pipeline: crawl → parse → index → search.
 
 ---
@@ -75,23 +74,29 @@ Each component can be developed and tested independently. MVP focuses on verifyi
 ## 📚 Modules Overview
 
 ### 1. 🌐 Crawler (Go)
+
 - Fetches web pages.
 - Sends raw HTML to Kafka.
 
 ### 2. 🧼 Parser (Rust)
+
 - Parses HTML: title, body, links.
 - Sends structured JSON to Kafka.
 
 ### 3. 🧠 Indexer (Python)
+
 - Builds inverted index with TF-IDF.
 - Stores index locally (disk or DB).
 
 ### 4. 🔍 Query API (FastAPI)
+
 - Loads the index into memory.
 - Exposes `/search?q=term`.
 
 ### 5. ⚡ Cache (Redis)
+
 - Caches frequent queries and responses.
 
 ### 6. 🎯 Frontend (Next.js)
+
 - Sleek, reactive search UI.

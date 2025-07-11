@@ -1,5 +1,5 @@
 # Variables
-DC_DEV=docker-compose -f docker-compose.dev.yml
+DC=docker-compose -f docker-compose.yml
 DC_PROD=docker-compose -f docker-compose.prod.yml
 
 # Colors for output
@@ -16,23 +16,21 @@ NC=\033[0m # No Color
 .PHONY: help \
         up-dev down-dev start-dev stop-dev restart-dev build-dev rebuild-dev logs-dev status-dev reset-dev clean-dev \
         up-prod down-prod start-prod stop-prod restart-prod build-prod rebuild-prod logs-prod status-prod reset-prod clean-prod \
-        start-prometheus-dev stop-prometheus-dev restart-prometheus-dev logs-prometheus-dev \
         start-prometheus stop-prometheus restart-prometheus logs-prometheus \
+        start-prometheus-prod stop-prometheus-prod restart-prometheus-prod logs-prometheus-prod \
         start-kafka stop-kafka restart-kafka logs-kafka \
         start-redis stop-redis restart-redis logs-redis \
-        start-crawler-dev stop-crawler-dev restart-crawler-dev logs-crawler-dev \
-        start-parser-dev stop-parser-dev restart-parser-dev logs-parser-dev \
-        start-indexer-dev stop-indexer-dev restart-indexer-dev logs-indexer-dev \
-        start-query-api-dev stop-query-api-dev restart-query-api-dev logs-query-api-dev \
-        start-frontend-dev stop-frontend-dev restart-frontend-dev logs-frontend-dev \
-		start-crawler stop-crawler restart-crawler logs-crawler \
+        start-crawler stop-crawler restart-crawler logs-crawler \
         start-parser stop-parser restart-parser logs-parser \
         start-indexer stop-indexer restart-indexer logs-indexer \
-        start-query-api stop-query-api restart-query-api logs-query-api \
-        start-frontend stop-frontend restart-frontend logs-frontend \
+        start-app stop-app restart-app logs-app \
+		start-crawler-prod stop-crawler-prod restart-crawler-prod logs-crawler-prod \
+        start-parser-prod stop-parser-prod restart-parser-prod logs-parser-prod \
+        start-indexer-prod stop-indexer-prod restart-indexer-prod logs-indexer-prod \
+        start-app-prod stop-app-prod restart-app-prod logs-app-prod \
         exec-kafka exec-redis \
-		exec-crawler-dev exec-parser-dev exec-indexer-dev exec-query-api-dev exec-frontend-dev \
-		exec-crawler exec-parser exec-indexer exec-query-api exec-frontend \
+		exec-crawler exec-parser exec-indexer exec-app \
+		exec-crawler-prod exec-parser-prod exec-indexer-prod exec-app-prod \
         kafka-topics kafka-create-topics kafka-list-topics kafka-delete-topics \
 		redis-cli redis-flushall \
         install-deps update-deps
@@ -70,15 +68,15 @@ help:
 	@echo "  $(BLUE)make clean-prod$(NC)				Clean prod containers and volumes"
 	@echo ""
 	@echo "$(GREEN)🗃️  INFRASTRUCTURE SERVICES$(NC)"
-	@echo "  $(CYAN)make start-prometheus-dev$(NC)				Start prometheus-dev service"
-	@echo "  $(CYAN)make stop-prometheus-dev$(NC)				Stop prometheus-dev service"
-	@echo "  $(CYAN)make restart-prometheus-dev$(NC)				Restart prometheus-dev service"
-	@echo "  $(CYAN)make logs-prometheus-dev$(NC)				View prometheus-dev logs"
-	@echo ""
 	@echo "  $(CYAN)make start-prometheus$(NC)				Start prometheus service"
 	@echo "  $(CYAN)make stop-prometheus$(NC)				Stop prometheus service"
 	@echo "  $(CYAN)make restart-prometheus$(NC)				Restart prometheus service"
 	@echo "  $(CYAN)make logs-prometheus$(NC)				View prometheus logs"
+	@echo ""
+	@echo "  $(CYAN)make start-prometheus-prod$(NC)				Start prometheus-prod service"
+	@echo "  $(CYAN)make stop-prometheus-prod$(NC)				Stop prometheus-prod service"
+	@echo "  $(CYAN)make restart-prometheus-prod$(NC)				Restart prometheus-prod service"
+	@echo "  $(CYAN)make logs-prometheus-prod$(NC)				View prometheus-prod logs"
 	@echo ""
 	@echo "  $(CYAN)make start-kafka$(NC)				Start Kafka service"
 	@echo "  $(CYAN)make stop-kafka$(NC)				Stop Kafka service"
@@ -90,73 +88,61 @@ help:
 	@echo "  $(CYAN)make restart-redis$(NC)				Restart Redis service"
 	@echo "  $(CYAN)make logs-redis$(NC)				View Redis logs"
 	@echo ""
-	@echo "$(GREEN)🔧 INDIVIDUAL SERVICE MANAGEMENT (DEV)$(NC)"
-	@echo "  $(PURPLE)make start-crawler-dev$(NC)			Start crawler-dev service"
-	@echo "  $(PURPLE)make stop-crawler-dev$(NC)			Stop crawler-dev service"
-	@echo "  $(PURPLE)make restart-crawler-dev$(NC)			Restart crawler-dev service"
-	@echo "  $(PURPLE)make logs-crawler-dev$(NC)			View crawler-dev logs"
+	@echo "$(GREEN)🔧 INDIVIDUAL SERVICE MANAGEMENT$(NC)"
+	@echo "  $(PURPLE)make start-crawler$(NC)			Start crawler service"
+	@echo "  $(PURPLE)make stop-crawler$(NC)			Stop crawler service"
+	@echo "  $(PURPLE)make restart-crawler$(NC)			Restart crawler service"
+	@echo "  $(PURPLE)make logs-crawler$(NC)			View crawler logs"
 	@echo ""
-	@echo "  $(PURPLE)make start-parser-dev$(NC)			Start parser-dev service"
-	@echo "  $(PURPLE)make stop-parser-dev$(NC)				Stop parser-dev service"
-	@echo "  $(PURPLE)make restart-parser-dev$(NC)			Restart parser-dev service"
-	@echo "  $(PURPLE)make logs-parser-dev$(NC)				View parser-dev logs"
-	@echo ""
-	@echo "  $(PURPLE)make start-indexer-dev$(NC)			Start indexer-dev service"
-	@echo "  $(PURPLE)make stop-indexer-dev$(NC)			Stop indexer-dev service"
-	@echo "  $(PURPLE)make restart-indexer-dev$(NC)			Restart indexer-dev service"
-	@echo "  $(PURPLE)make logs-indexer-dev$(NC)			View indexer-dev logs"
-	@echo ""
-	@echo "  $(PURPLE)make start-query-api-dev$(NC)			Start query-api-dev service"
-	@echo "  $(PURPLE)make stop-query-api-dev$(NC)			Stop query-api-dev service"
-	@echo "  $(PURPLE)make restart-query-api-dev$(NC)			Restart query-api-dev service"
-	@echo "  $(PURPLE)make logs-query-api-dev$(NC)			View query-api-dev logs"
-	@echo ""
-	@echo "  $(PURPLE)make start-frontend-dev$(NC)			Start frontend-dev service"
-	@echo "  $(PURPLE)make stop-frontend-dev$(NC)			Stop frontend-dev service"
-	@echo "  $(PURPLE)make restart-frontend-dev$(NC)			Restart frontend-dev service"
-	@echo "  $(PURPLE)make logs-frontend-dev$(NC)			View frontend-dev logs"
-	@echo ""
-	@echo "$(GREEN)🔧 INDIVIDUAL SERVICE MANAGEMENT (PROD)$(NC)"
-	@echo "  $(PURPLE)make start-crawler$(NC)				Start crawler service"
-	@echo "  $(PURPLE)make stop-crawler$(NC)				Stop crawler service"
-	@echo "  $(PURPLE)make restart-crawler$(NC)				Restart crawler service"
-	@echo "  $(PURPLE)make logs-crawler$(NC)				View crawler logs"
-	@echo ""
-	@echo "  $(PURPLE)make start-parser$(NC)				Start parser service"
+	@echo "  $(PURPLE)make start-parser$(NC)			Start parser service"
 	@echo "  $(PURPLE)make stop-parser$(NC)				Stop parser service"
-	@echo "  $(PURPLE)make restart-parser$(NC)				Restart parser service"
+	@echo "  $(PURPLE)make restart-parser$(NC)			Restart parser service"
 	@echo "  $(PURPLE)make logs-parser$(NC)				View parser logs"
 	@echo ""
-	@echo "  $(PURPLE)make start-indexer$(NC)				Start indexer service"
-	@echo "  $(PURPLE)make stop-indexer$(NC)				Stop indexer service"
-	@echo "  $(PURPLE)make restart-indexer$(NC)				Restart indexer service"
-	@echo "  $(PURPLE)make logs-indexer$(NC)				View indexer logs"
+	@echo "  $(PURPLE)make start-indexer$(NC)			Start indexer service"
+	@echo "  $(PURPLE)make stop-indexer$(NC)			Stop indexer service"
+	@echo "  $(PURPLE)make restart-indexer$(NC)			Restart indexer service"
+	@echo "  $(PURPLE)make logs-indexer$(NC)			View indexer logs"
 	@echo ""
-	@echo "  $(PURPLE)make start-query-api$(NC)				Start query-api service"
-	@echo "  $(PURPLE)make stop-query-api$(NC)				Stop query-api service"
-	@echo "  $(PURPLE)make restart-query-api$(NC)			Restart query-api service"
-	@echo "  $(PURPLE)make logs-query-api$(NC)				View query-api logs"
+	@echo "  $(PURPLE)make start-app$(NC)			Start app"
+	@echo "  $(PURPLE)make stop-app$(NC)			Stop app"
+	@echo "  $(PURPLE)make restart-app$(NC)			Restart app"
+	@echo "  $(PURPLE)make logs-app$(NC)			View app logs"
 	@echo ""
-	@echo "  $(PURPLE)make start-frontend$(NC)				Start frontend service"
-	@echo "  $(PURPLE)make stop-frontend$(NC)				Stop frontend service"
-	@echo "  $(PURPLE)make restart-frontend$(NC)			Restart frontend service"
-	@echo "  $(PURPLE)make logs-frontend$(NC)				View frontend logs"
+	@echo "$(GREEN)🔧 INDIVIDUAL SERVICE MANAGEMENT (PROD)$(NC)"
+	@echo "  $(PURPLE)make start-crawler-prod$(NC)				Start crawler-prod service"
+	@echo "  $(PURPLE)make stop-crawler-prod$(NC)				Stop crawler-prod service"
+	@echo "  $(PURPLE)make restart-crawler-prod$(NC)				Restart crawler-prod service"
+	@echo "  $(PURPLE)make logs-crawler-prod$(NC)				View crawler-prod logs"
+	@echo ""
+	@echo "  $(PURPLE)make start-parser-prod$(NC)				Start parser-prod service"
+	@echo "  $(PURPLE)make stop-parser-prod$(NC)				Stop parser-prod service"
+	@echo "  $(PURPLE)make restart-parser-prod$(NC)				Restart parser-prod service"
+	@echo "  $(PURPLE)make logs-parser-prod$(NC)				View parser-prod logs"
+	@echo ""
+	@echo "  $(PURPLE)make start-indexer-prod$(NC)				Start indexer-prod service"
+	@echo "  $(PURPLE)make stop-indexer-prod$(NC)				Stop indexer-prod service"
+	@echo "  $(PURPLE)make restart-indexer-prod$(NC)				Restart indexer-prod service"
+	@echo "  $(PURPLE)make logs-indexer-prod$(NC)				View indexer-prod logs"
+	@echo ""
+	@echo "  $(PURPLE)make start-app-prod$(NC)				Start app-prod"
+	@echo "  $(PURPLE)make stop-app-prod$(NC)				Stop app-prod"
+	@echo "  $(PURPLE)make restart-app-prod$(NC)			Restart app-prod"
+	@echo "  $(PURPLE)make logs-app-prod$(NC)				View app-prod logs"
 	@echo ""
 	@echo "$(GREEN)🐚 SHELL ACCESS$(NC)"
 	@echo "  $(WHITE)make exec-kafka$(NC)				Shell into Kafka container"
 	@echo "  $(WHITE)make exec-redis$(NC)				Shell into Redis container"
 	@echo ""
-	@echo "  $(WHITE)make exec-crawler-dev$(NC)			Shell into crawler-dev container"
-	@echo "  $(WHITE)make exec-parser-dev$(NC)				Shell into parser-dev container"
-	@echo "  $(WHITE)make exec-indexer-dev$(NC)			Shell into indexer-dev container"
-	@echo "  $(WHITE)make exec-query-api-dev$(NC)			Shell into query-api-dev container"
-	@echo "  $(WHITE)make exec-frontend-dev$(NC)			Shell into frontend-dev container"
-	@echo ""
-	@echo "  $(WHITE)make exec-crawler$(NC)				Shell into crawler container"
+	@echo "  $(WHITE)make exec-crawler$(NC)			Shell into crawler container"
 	@echo "  $(WHITE)make exec-parser$(NC)				Shell into parser container"
-	@echo "  $(WHITE)make exec-indexer$(NC)				Shell into indexer container"
-	@echo "  $(WHITE)make exec-query-api$(NC)				Shell into query-api container"
-	@echo "  $(WHITE)make exec-frontend$(NC)				Shell into frontend container"
+	@echo "  $(WHITE)make exec-indexer$(NC)			Shell into indexer container"
+	@echo "  $(WHITE)make exec-app$(NC)			Shell into app container"
+	@echo ""
+	@echo "  $(WHITE)make exec-crawler-prod$(NC)				Shell into crawler-prod container"
+	@echo "  $(WHITE)make exec-parser-prod$(NC)				Shell into parser-prod container"
+	@echo "  $(WHITE)make exec-indexer-prod$(NC)				Shell into indexer-prod container"
+	@echo "  $(WHITE)make exec-app-prod$(NC)				Shell into app-prod container"
 	@echo ""
 	@echo "$(GREEN)📊 KAFKA MANAGEMENT$(NC)"
 	@echo "  $(YELLOW)make kafka-topics$(NC)				List all Kafka topics"
@@ -178,48 +164,48 @@ help:
 
 up-dev:
 	@echo "$(GREEN)🚀 Starting development environment...$(NC)"
-	COMPOSE_BAKE=true $(DC_DEV) up --build -d
+	COMPOSE_BAKE=true $(DC) up --build -d
 
 down-dev:
 	@echo "$(RED)🛑 Stopping and removing development containers...$(NC)"
-	$(DC_DEV) down
+	$(DC) down
 
 start-dev:
 	@echo "$(GREEN)▶️  Starting development services (no build)...$(NC)"
-	$(DC_DEV) up -d
+	COMPOSE_BAKE=true $(DC) up -d
 
 stop-dev:
 	@echo "$(YELLOW)⏹️  Stopping development services...$(NC)"
-	$(DC_DEV) stop
+	$(DC) stop
 
 restart-dev:
 	@echo "$(BLUE)🔄 Restarting development services...$(NC)"
-	$(DC_DEV) restart
+	$(DC) restart
 
 build-dev:
 	@echo "$(BLUE)🔨 Building development images...$(NC)"
-	COMPOSE_BAKE=true $(DC_DEV) build
+	COMPOSE_BAKE=true $(DC) build
 
 rebuild-dev:
 	@echo "$(BLUE)🔨 Force rebuilding development images...$(NC)"
-	COMPOSE_BAKE=true $(DC_DEV) build --no-cache
+	COMPOSE_BAKE=true $(DC) build --no-cache
 
 logs-dev:
 	@echo "$(CYAN)📋 Viewing development logs...$(NC)"
-	$(DC_DEV) logs -f --tail=100
+	$(DC) logs -f --tail=100
 
 status-dev:
 	@echo "$(CYAN)📊 Development services status:$(NC)"
-	$(DC_DEV) ps
+	$(DC) ps
 
 reset-dev:
 	@echo "$(RED)🔄 Resetting development environment...$(NC)"
-	$(DC_DEV) down -v
-	COMPOSE_BAKE=true $(DC_DEV) up --build -d
+	$(DC) down -v
+	COMPOSE_BAKE=true $(DC) up --build -d
 
 clean-dev:
 	@echo "$(RED)🧹 Cleaning development environment...$(NC)"
-	$(DC_DEV) down -v --remove-orphans
+	$(DC) down -v --remove-orphans
 	docker system prune -f
 
 # ============================================================================
@@ -236,7 +222,7 @@ down-prod:
 
 start-prod:
 	@echo "$(GREEN)▶️  Starting production services (no build)...$(NC)"
-	$(DC_PROD) up -d
+	COMPOSE_BAKE=true $(DC_PROD) up -d
 
 stop-prod:
 	@echo "$(YELLOW)⏹️  Stopping production services...$(NC)"
@@ -276,238 +262,205 @@ clean-prod:
 # INFRASTRUCTURE SERVICES
 # ============================================================================
 
-start-prometheus-dev:
-	@echo "$(CYAN)🎯 Starting prometheus-dev service...$(NC)"
-	$(DC_DEV) up -d prometheus-dev
-
-stop-prometheus-dev:
-	@echo "$(CYAN)⏹️  Stopping prometheus-dev service...$(NC)"
-	$(DC_DEV) stop prometheus-dev
-
-restart-prometheus-dev:
-	@echo "$(CYAN)🔄 Restarting prometheus-dev service...$(NC)"
-	$(DC_DEV) restart prometheus-dev
-
-logs-prometheus-dev:
-	@echo "$(CYAN)📋 Viewing prometheus-dev logs...$(NC)"
-	$(DC_DEV) logs -f prometheus-dev
-
 start-prometheus:
 	@echo "$(CYAN)🎯 Starting prometheus service...$(NC)"
-	$(DC_PROD) up -d prometheus
+	COMPOSE_BAKE=true $(DC) up -d prometheus
 
 stop-prometheus:
 	@echo "$(CYAN)⏹️  Stopping prometheus service...$(NC)"
-	$(DC_PROD) stop prometheus
+	$(DC) stop prometheus
 
 restart-prometheus:
 	@echo "$(CYAN)🔄 Restarting prometheus service...$(NC)"
-	$(DC_PROD) restart prometheus
+	$(DC) restart prometheus
 
 logs-prometheus:
 	@echo "$(CYAN)📋 Viewing prometheus logs...$(NC)"
-	$(DC_PROD) logs -f prometheus
+	$(DC) logs -f prometheus
+
+start-prometheus-prod:
+	@echo "$(CYAN)🎯 Starting prometheus-prod service...$(NC)"
+	COMPOSE_BAKE=true $(DC_PROD) up -d prometheus-prod
+
+stop-prometheus-prod:
+	@echo "$(CYAN)⏹️  Stopping prometheus-prod service...$(NC)"
+	$(DC_PROD) stop prometheus-prod
+
+restart-prometheus-prod:
+	@echo "$(CYAN)🔄 Restarting prometheus-prod service...$(NC)"
+	$(DC_PROD) restart prometheus-prod
+
+logs-prometheus-prod:
+	@echo "$(CYAN)📋 Viewing prometheus-prod logs...$(NC)"
+	$(DC_PROD) logs -f prometheus-prod
 
 start-kafka:
 	@echo "$(CYAN)🎯 Starting Kafka service...$(NC)"
-	$(DC_DEV) up -d kafka
+	COMPOSE_BAKE=true $(DC) up -d kafka
 
 stop-kafka:
 	@echo "$(CYAN)⏹️  Stopping Kafka service...$(NC)"
-	$(DC_DEV) stop kafka
+	$(DC) stop kafka
 
 restart-kafka:
 	@echo "$(CYAN)🔄 Restarting Kafka service...$(NC)"
-	$(DC_DEV) restart kafka
+	$(DC) restart kafka
 
 logs-kafka:
 	@echo "$(CYAN)📋 Viewing Kafka logs...$(NC)"
-	$(DC_DEV) logs -f kafka
+	$(DC) logs -f kafka
 
 start-redis:
 	@echo "$(CYAN)🗄️  Starting Redis service...$(NC)"
-	$(DC_DEV) up -d redis
+	COMPOSE_BAKE=true $(DC) up -d redis
 
 stop-redis:
 	@echo "$(CYAN)⏹️  Stopping Redis service...$(NC)"
-	$(DC_DEV) stop redis
+	$(DC) stop redis
 
 restart-redis:
 	@echo "$(CYAN)🔄 Restarting Redis service...$(NC)"
-	$(DC_DEV) restart redis
+	$(DC) restart redis
 
 logs-redis:
 	@echo "$(CYAN)📋 Viewing Redis logs...$(NC)"
-	$(DC_DEV) logs -f redis
+	$(DC) logs -f redis
 
 # ============================================================================
-# INDIVIDUAL SERVICE MANAGEMENT (DEV)
+# INDIVIDUAL SERVICE MANAGEMENT
 # ============================================================================
 
-start-crawler-dev:
-	@echo "$(PURPLE)🕷️  Starting crawler-dev service...$(NC)"
-	$(DC_DEV) up -d crawler-dev 
-# 	--scale crawler-dev=5
+start-crawler:
+	@echo "$(PURPLE)🕷️  Starting crawler service...$(NC)"
+	COMPOSE_BAKE=true $(DC) up -d crawler 
 
-stop-crawler-dev:
-	@echo "$(PURPLE)⏹️  Stopping crawler-dev service...$(NC)"
-	$(DC_DEV) stop crawler-dev
+stop-crawler:
+	@echo "$(PURPLE)⏹️  Stopping crawler service...$(NC)"
+	$(DC) stop crawler
 
-restart-crawler-dev:
-	@echo "$(PURPLE)🔄 Restarting crawler-dev service...$(NC)"
-	$(DC_DEV) restart crawler-dev
+restart-crawler:
+	@echo "$(PURPLE)🔄 Restarting crawler service...$(NC)"
+	$(DC) restart crawler
 
-logs-crawler-dev:
-	@echo "$(PURPLE)📋 Viewing crawler-dev logs...$(NC)"
-	$(DC_DEV) logs -f crawler-dev
+logs-crawler:
+	@echo "$(PURPLE)📋 Viewing crawler logs...$(NC)"
+	$(DC) logs -f crawler
 
-start-parser-dev:
-	@echo "$(PURPLE)🔍 Starting parser-dev service...$(NC)"
-	$(DC_DEV) up -d parser-dev
+start-parser:
+	@echo "$(PURPLE)🔍 Starting parser service...$(NC)"
+	COMPOSE_BAKE=true $(DC) up -d parser
 
-stop-parser-dev:
-	@echo "$(PURPLE)⏹️  Stopping parser-dev service...$(NC)"
-	$(DC_DEV) stop parser-dev
+stop-parser:
+	@echo "$(PURPLE)⏹️  Stopping parser service...$(NC)"
+	$(DC) stop parser
 
-restart-parser-dev:
-	@echo "$(PURPLE)🔄 Restarting parser-dev service...$(NC)"
-	$(DC_DEV) restart parser-dev
+restart-parser:
+	@echo "$(PURPLE)🔄 Restarting parser service...$(NC)"
+	$(DC) restart parser
 
-logs-parser-dev:
-	@echo "$(PURPLE)📋 Viewing parser-dev logs...$(NC)"
-	$(DC_DEV) logs -f parser-dev
+logs-parser:
+	@echo "$(PURPLE)📋 Viewing parser logs...$(NC)"
+	$(DC) logs -f parser
 
-start-indexer-dev:
-	@echo "$(PURPLE)🗂️  Starting indexer-dev service...$(NC)"
-	$(DC_DEV) up -d indexer-dev
+start-indexer:
+	@echo "$(PURPLE)🗂️  Starting indexer service...$(NC)"
+	COMPOSE_BAKE=true $(DC) up -d indexer
 
-stop-indexer-dev:
-	@echo "$(PURPLE)⏹️  Stopping indexer-dev service...$(NC)"
-	$(DC_DEV) stop indexer-dev
+stop-indexer:
+	@echo "$(PURPLE)⏹️  Stopping indexer service...$(NC)"
+	$(DC) stop indexer
 
-restart-indexer-dev:
-	@echo "$(PURPLE)🔄 Restarting indexer-dev service...$(NC)"
-	$(DC_DEV) restart indexer-dev
+restart-indexer:
+	@echo "$(PURPLE)🔄 Restarting indexer service...$(NC)"
+	$(DC) restart indexer
 
-logs-indexer-dev:
-	@echo "$(PURPLE)📋 Viewing indexer-dev logs...$(NC)"
-	$(DC_DEV) logs -f indexer-dev
+logs-indexer:
+	@echo "$(PURPLE)📋 Viewing indexer logs...$(NC)"
+	$(DC) logs -f indexer
 
-start-query-api-dev:
-	@echo "$(PURPLE)🔌 Starting query-api-dev service...$(NC)"
-	$(DC_DEV) up -d query-api-dev
+start-app:
+	@echo "$(PURPLE)🔌 Starting app...$(NC)"
+	COMPOSE_BAKE=true $(DC) up -d app
 
-stop-query-api-dev:
-	@echo "$(PURPLE)⏹️  Stopping query-api-dev service...$(NC)"
-	$(DC_DEV) stop query-api-dev
+stop-app:
+	@echo "$(PURPLE)⏹️  Stopping app...$(NC)"
+	$(DC) stop app
 
-restart-query-api-dev:
-	@echo "$(PURPLE)🔄 Restarting query-api-dev service...$(NC)"
-	$(DC_DEV) restart query-api-dev
+restart-app:
+	@echo "$(PURPLE)🔄 Restarting app...$(NC)"
+	$(DC) restart app
 
-logs-query-api-dev:
-	@echo "$(PURPLE)📋 Viewing query-api-dev logs...$(NC)"
-	$(DC_DEV) logs -f query-api-dev
-
-start-frontend-dev:
-	@echo "$(PURPLE)🌐 Starting frontend-dev service...$(NC)"
-	$(DC_DEV) up -d frontend-dev
-
-stop-frontend-dev:
-	@echo "$(PURPLE)⏹️  Stopping frontend-dev service...$(NC)"
-	$(DC_DEV) stop frontend-dev
-
-restart-frontend-dev:
-	@echo "$(PURPLE)🔄 Restarting frontend-dev service...$(NC)"
-	$(DC_DEV) restart frontend-dev
-
-logs-frontend-dev:
-	@echo "$(PURPLE)📋 Viewing frontend-dev logs...$(NC)"
-	$(DC_DEV) logs -f frontend-dev
+logs-app:
+	@echo "$(PURPLE)📋 Viewing app logs...$(NC)"
+	$(DC) logs -f app
 
 # ============================================================================
 # INDIVIDUAL SERVICE MANAGEMENT (PROD)
 # ============================================================================
 
-start-crawler:
-	@echo "$(PURPLE)🕷️  Starting crawler service...$(NC)"
-	$(DC_PROD) up -d crawler
+start-crawler-prod:
+	@echo "$(PURPLE)🕷️  Starting crawler-prod service...$(NC)"
+	COMPOSE_BAKE=true $(DC_PROD) up -d crawler-prod
 
-stop-crawler:
-	@echo "$(PURPLE)⏹️  Stopping crawler service...$(NC)"
-	$(DC_PROD) stop crawler
+stop-crawler-prod:
+	@echo "$(PURPLE)⏹️  Stopping crawler-prod service...$(NC)"
+	$(DC_PROD) stop crawler-prod
 
-restart-crawler:
-	@echo "$(PURPLE)🔄 Restarting crawler service...$(NC)"
-	$(DC_PROD) restart crawler
+restart-crawler-prod:
+	@echo "$(PURPLE)🔄 Restarting crawler-prod service...$(NC)"
+	$(DC_PROD) restart crawler-prod
 
-logs-crawler:
-	@echo "$(PURPLE)📋 Viewing crawler logs...$(NC)"
-	$(DC_PROD) logs -f crawler
+logs-crawler-prod:
+	@echo "$(PURPLE)📋 Viewing crawler-prod logs...$(NC)"
+	$(DC_PROD) logs -f crawler-prod
 
-start-parser:
-	@echo "$(PURPLE)🔍 Starting parser service...$(NC)"
-	$(DC_PROD) up -d parser
+start-parser-prod:
+	@echo "$(PURPLE)🔍 Starting parser-prod service...$(NC)"
+	COMPOSE_BAKE=true $(DC_PROD) up -d parser-prod
 
-stop-parser:
-	@echo "$(PURPLE)⏹️  Stopping parser service...$(NC)"
-	$(DC_PROD) stop parser
+stop-parser-prod:
+	@echo "$(PURPLE)⏹️  Stopping parser-prod service...$(NC)"
+	$(DC_PROD) stop parser-prod
 
-restart-parser:
-	@echo "$(PURPLE)🔄 Restarting parser service...$(NC)"
-	$(DC_PROD) restart parser
+restart-parser-prod:
+	@echo "$(PURPLE)🔄 Restarting parser-prod service...$(NC)"
+	$(DC_PROD) restart parser-prod
 
-logs-parser:
-	@echo "$(PURPLE)📋 Viewing parser logs...$(NC)"
-	$(DC_PROD) logs -f parser
+logs-parser-prod:
+	@echo "$(PURPLE)📋 Viewing parser-prod logs...$(NC)"
+	$(DC_PROD) logs -f parser-prod
 
-start-indexer:
-	@echo "$(PURPLE)🗂️  Starting indexer service...$(NC)"
-	$(DC_PROD) up -d indexer
+start-indexer-prod:
+	@echo "$(PURPLE)🗂️  Starting indexer-prod service...$(NC)"
+	COMPOSE_BAKE=true $(DC_PROD) up -d indexer-prod
 
-stop-indexer:
-	@echo "$(PURPLE)⏹️  Stopping indexer service...$(NC)"
-	$(DC_PROD) stop indexer
+stop-indexer-prod:
+	@echo "$(PURPLE)⏹️  Stopping indexer-prod service...$(NC)"
+	$(DC_PROD) stop indexer-prod
 
-restart-indexer:
-	@echo "$(PURPLE)🔄 Restarting indexer service...$(NC)"
-	$(DC_PROD) restart indexer
+restart-indexer-prod:
+	@echo "$(PURPLE)🔄 Restarting indexer-prod service...$(NC)"
+	$(DC_PROD) restart indexer-prod
 
-logs-indexer:
-	@echo "$(PURPLE)📋 Viewing indexer logs...$(NC)"
-	$(DC_PROD) logs -f indexer
+logs-indexer-prod:
+	@echo "$(PURPLE)📋 Viewing indexer-prod logs...$(NC)"
+	$(DC_PROD) logs -f indexer-prod
 
-start-query-api:
-	@echo "$(PURPLE)🔌 Starting query-api service...$(NC)"
-	$(DC_PROD) up -d query-api
+start-app-prod:
+	@echo "$(PURPLE)🔌 Starting app-prod...$(NC)"
+	COMPOSE_BAKE=true $(DC_PROD) up -d app-prod
 
-stop-query-api:
-	@echo "$(PURPLE)⏹️  Stopping query-api service...$(NC)"
-	$(DC_PROD) stop query-api
+stop-app-prod:
+	@echo "$(PURPLE)⏹️  Stopping app-prod...$(NC)"
+	$(DC_PROD) stop app-prod
 
-restart-query-api:
-	@echo "$(PURPLE)🔄 Restarting query-api service...$(NC)"
-	$(DC_PROD) restart query-api
+restart-app-prod:
+	@echo "$(PURPLE)🔄 Restarting app-prod...$(NC)"
+	$(DC_PROD) restart app-prod
 
-logs-query-api:
-	@echo "$(PURPLE)📋 Viewing query-api logs...$(NC)"
-	$(DC_PROD) logs -f query-api
-
-start-frontend:
-	@echo "$(PURPLE)🌐 Starting frontend service...$(NC)"
-	$(DC_PROD) up -d frontend
-
-stop-frontend:
-	@echo "$(PURPLE)⏹️  Stopping frontend service...$(NC)"
-	$(DC_PROD) stop frontend
-
-restart-frontend:
-	@echo "$(PURPLE)🔄 Restarting frontend service...$(NC)"
-	$(DC_PROD) restart frontend
-
-logs-frontend:
-	@echo "$(PURPLE)📋 Viewing frontend logs...$(NC)"
-	$(DC_PROD) logs -f frontend
+logs-app-prod:
+	@echo "$(PURPLE)📋 Viewing app-prod logs...$(NC)"
+	$(DC_PROD) logs -f app-prod
 
 # ============================================================================
 # SHELL ACCESS
@@ -515,51 +468,43 @@ logs-frontend:
 
 exec-kafka:
 	@echo "$(WHITE)🐚 Entering Kafka container...$(NC)"
-	$(DC_DEV) exec kafka sh
+	$(DC) exec kafka sh
 
 exec-redis:
 	@echo "$(WHITE)🐚 Entering Redis container...$(NC)"
-	$(DC_DEV) exec redis sh
-
-exec-crawler-dev:
-	@echo "$(WHITE)🐚 Entering crawler-dev container...$(NC)"
-	$(DC_DEV) exec crawler-dev sh
-
-exec-parser-dev:
-	@echo "$(WHITE)🐚 Entering parser-dev container...$(NC)"
-	$(DC_DEV) exec parser-dev sh
-
-exec-indexer-dev:
-	@echo "$(WHITE)🐚 Entering indexer-dev container...$(NC)"
-	$(DC_DEV) exec indexer-dev sh
-
-exec-query-api-dev:
-	@echo "$(WHITE)🐚 Entering query-api-dev container...$(NC)"
-	$(DC_DEV) exec query-api-dev sh
-
-exec-frontend-dev:
-	@echo "$(WHITE)🐚 Entering frontend-dev container...$(NC)"
-	$(DC_DEV) exec frontend-dev sh
+	$(DC) exec redis sh
 
 exec-crawler:
 	@echo "$(WHITE)🐚 Entering crawler container...$(NC)"
-	$(DC_PROD) exec crawler sh
+	$(DC) exec crawler sh
 
 exec-parser:
 	@echo "$(WHITE)🐚 Entering parser container...$(NC)"
-	$(DC_PROD) exec parser sh
+	$(DC) exec parser sh
 
 exec-indexer:
 	@echo "$(WHITE)🐚 Entering indexer container...$(NC)"
-	$(DC_PROD) exec indexer sh
+	$(DC) exec indexer sh
 
-exec-query-api:
-	@echo "$(WHITE)🐚 Entering query-api container...$(NC)"
-	$(DC_PROD) exec query-api sh
+exec-app:
+	@echo "$(WHITE)🐚 Entering app container...$(NC)"
+	$(DC) exec app sh
 
-exec-frontend:
-	@echo "$(WHITE)🐚 Entering frontend container...$(NC)"
-	$(DC_PROD) exec frontend sh
+exec-crawler-prod:
+	@echo "$(WHITE)🐚 Entering crawler-prod container...$(NC)"
+	$(DC_PROD) exec crawler-prod sh
+
+exec-parser-prod:
+	@echo "$(WHITE)🐚 Entering parser-prod container...$(NC)"
+	$(DC_PROD) exec parser-prod sh
+
+exec-indexer-prod:
+	@echo "$(WHITE)🐚 Entering indexer-prod container...$(NC)"
+	$(DC_PROD) exec indexer-prod sh
+
+exec-app-prod:
+	@echo "$(WHITE)🐚 Entering app-prod container...$(NC)"
+	$(DC_PROD) exec app-prod sh
 
 # ============================================================================
 # KAFKA MANAGEMENT
@@ -567,24 +512,24 @@ exec-frontend:
 
 kafka-topics:
 	@echo "$(YELLOW)📊 Listing Kafka topics...$(NC)"
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --list
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --list
 
 kafka-create-topics:
 	@echo "$(YELLOW)➕ Creating Kafka topics...$(NC)"
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic raw-html --partitions 3 --replication-factor 1
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic parsed-pages --partitions 3 --replication-factor 1
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic indexed-pages --partitions 3 --replication-factor 1
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic raw-html --partitions 3 --replication-factor 1
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic parsed-pages --partitions 3 --replication-factor 1
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic indexed-pages --partitions 3 --replication-factor 1
 	@echo "$(GREEN)✅ Topics created successfully!$(NC)"
 
 kafka-list-topics:
 	@echo "$(YELLOW)📋 Kafka topics details...$(NC)"
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --describe
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --describe
 
 kafka-delete-topics:
 	@echo "$(RED)🗑️  Deleting Kafka topics...$(NC)"
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --delete --topic raw-html || true
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --delete --topic parsed-pages || true
-	$(DC_DEV) exec kafka kafka-topics --bootstrap-server localhost:9092 --delete --topic indexed-pages || true
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --delete --topic raw-html || true
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --delete --topic parsed-pages || true
+	$(DC) exec kafka kafka-topics --bootstrap-server localhost:9092 --delete --topic indexed-pages || true
 
 # ============================================================================
 # REDIS MANAGEMENT
@@ -592,11 +537,11 @@ kafka-delete-topics:
 
 redis-cli:
 	@echo "$(YELLOW)🔗 Accessing Redis CLI...$(NC)"
-	$(DC_DEV) exec redis redis-cli
+	$(DC) exec redis redis-cli
 
 redis-flushall:
 	@echo "$(RED)🧹 Flushing all Redis data...$(NC)"
-	$(DC_DEV) exec redis redis-cli FLUSHALL
+	$(DC) exec redis redis-cli FLUSHALL
 	@echo "$(GREEN)✅ Redis data flushed!$(NC)"
 
 # ============================================================================
@@ -605,16 +550,14 @@ redis-flushall:
 
 install-deps:
 	@echo "$(PURPLE)📦 Installing dependencies...$(NC)"
-	$(DC_DEV) exec crawler-dev go mod tidy || true
-	$(DC_DEV) exec parser-dev pip install -r requirements.txt || true
-	$(DC_DEV) exec indexer-dev pip install -r requirements.txt || true
-	$(DC_DEV) exec query-api-dev pip install -r requirements.txt || true
-	$(DC_DEV) exec frontend-dev npm install || true
+	$(DC) exec crawler go mod tidy || true
+	$(DC) exec parser pip install -r requirements.txt || true
+	$(DC) exec indexer pip install -r requirements.txt || true
+	$(DC) exec app npm install || true
 
 update-deps:
 	@echo "$(PURPLE)⬆️  Updating dependencies...$(NC)"
-	$(DC_DEV) exec crawler-dev go get -u ./... || true
-	$(DC_DEV) exec parser-dev pip install --upgrade -r requirements.txt || true
-	$(DC_DEV) exec indexer-dev pip install --upgrade -r requirements.txt || true
-	$(DC_DEV) exec query-api-dev pip install --upgrade -r requirements.txt || true
-	$(DC_DEV) exec frontend-dev npm update || true
+	$(DC) exec crawler go get -u ./... || true
+	$(DC) exec parser pip install --upgrade -r requirements.txt || true
+	$(DC) exec indexer pip install --upgrade -r requirements.txt || true
+	$(DC) exec app npm update || true

@@ -65,10 +65,12 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  crawler-prod:
+  crawler:
     build:
       context: ./services/crawler
-      dockerfile: Dockerfile.prod
+      dockerfile: Dockerfile
+    # For Air live reload, enable init to true
+    init: true
     environment:
       - CRAWL_DEPTH=3
       - ENABLE_DEBUG=false
@@ -76,7 +78,7 @@ services:
       - KAFKA_RETRY_MAX=3
       - KAFKA_TOPIC_HTML=raw-html
       - LOG_LEVEL=info
-      - MAX_CONCURRENCY=32
+      - MAX_CONCURRENCY=16
       - MAX_CONTENT_SIZE=10485760 # 10 MB
       - MAX_PAGES=10000
       - MONITOR_PORT=8080
@@ -90,13 +92,17 @@ services:
       - REQUEST_TIMEOUT=10s
       - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
       - USER_AGENT=Sneakdex/1.0
+    volumes:
+      - ./services/crawler/cmd:/app/cmd
+      - ./services/crawler/internal:/app/internal
+      - ./services/crawler/.air.toml:/app/.air.toml
+      - ./services/crawler/go.mod:/app/go.mod
+      - ./services/crawler/go.sum:/app/go.sum
     depends_on:
       kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
-      parser-prod:
-        condition: service_healthy
     networks:
       - monitoring
       - sneakdex-network
@@ -105,28 +111,31 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 120s
+      start_period: 1000s
     restart: unless-stopped
 
-  parser-prod:
+  parser:
     build:
       context: ./services/parser
-      dockerfile: Dockerfile.prod
+      dockerfile: Dockerfile
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_GROUP_ID=parser-group
       - KAFKA_TOPIC_HTML=raw-html
       - KAFKA_TOPIC_PARSED=parsed-pages
-      - MAX_CONCURRENCY=128
+      - MAX_CONCURRENCY=64
       - MAX_CONTENT_LENGTH=5242880 # 5 MB
       - MIN_CONTENT_LENGTH=1024 # 1 KB
       - MONITOR_PORT=8080
       - RUST_LOG=info
+    volumes:
+      - ./services/parser:/app
+      - /app/target
     depends_on:
       kafka:
         condition: service_healthy
-      indexer-prod:
-        condition: service_healthy
+      crawler:
+        condition: service_started
     networks:
       - monitoring
       - sneakdex-network
@@ -135,14 +144,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 120s
+      start_period: 1000s
     restart: unless-stopped
 
-  indexer-prod:
+  indexer:
     build:
       context: ./services/indexer
-      dockerfile: Dockerfile.prod
-    container_name: sneakdex-indexer-prod
+      dockerfile: Dockerfile
+    container_name: sneakdex-indexer
     environment:
       - BATCH_SIZE=500
       - INDEX_OUTPUT_PATH=/app/data/index
@@ -156,12 +165,15 @@ services:
       - NUM_CONSUMER_THREADS=2
       - NUM_WORKER_THREADS=4
       - PREPROCESSING_WORKERS=4
-      - PYTHON_ENV=production
+      - PYTHON_ENV=development
       - TF_IDF_MIN_DF=2
+    volumes:
+      - ./services/indexer/indexer:/app/indexer
+      - ./services/indexer/requirements.txt:/app/requirements.txt
     depends_on:
       kafka:
         condition: service_healthy
-      app-prod:
+      parser:
         condition: service_started
     networks:
       - monitoring
@@ -171,18 +183,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 120s
+      start_period: 1000s
     restart: unless-stopped
 
-  app-prod:
+  app:
     build:
       context: ./app
-      dockerfile: Dockerfile.prod
-    container_name: sneakdex-app-prod
+      dockerfile: Dockerfile
+    container_name: sneakdex-app
+    environment:
+      NODE_ENV: development
     ports:
       - "3000:3000"
-    environment:
-      NODE_ENV: production
+    volumes:
+      - /app/node_modules
+      - ./app:/app
+    depends_on:
+      indexer:
+        condition: service_started
     networks:
       - monitoring
       - sneakdex-network
@@ -225,13 +243,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  prometheus-prod:
+  prometheus:
     image: prom/prometheus:latest
-    container_name: prometheus-prod
+    container_name: prometheus
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.prod.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - /var/run/docker.sock:/var/run/docker.sock
       - prometheus-data:/prometheus
     command:

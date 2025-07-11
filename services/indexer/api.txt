@@ -1,0 +1,2 @@
+url="https://eaec3da6-1c69-4c3b-bd7b-f61fde0e2761.eu-central-1-0.aws.cloud.qdrant.io:6333",
+api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.x7amgrQLYPa5fg56TSBmWYtX1XkuS79wIoYC-tyedDU",

@@ -18,18 +18,24 @@ scrape_configs:
     static_configs:
       - targets: ["kafka-exporter:9308"]
 
-  - job_name: "crawler-dev"
+  - job_name: "crawler"
     static_configs:
       - targets:
-          - "sneakdex-crawler-dev-1:8080"
-          - "sneakdex-crawler-dev-2:8080"
-          - "sneakdex-crawler-dev-3:8080"
-          - "sneakdex-crawler-dev-4:8080"
-          - "sneakdex-crawler-dev-5:8080"
+          - "sneakdex-crawler-1:8080"
+          - "sneakdex-crawler-2:8080"
+          - "sneakdex-crawler-3:8080"
 
-  - job_name: "parser-dev"
+  - job_name: "parser"
     static_configs:
       - targets:
-          - "sneakdex-parser-dev-1:8080"
-          - "sneakdex-parser-dev-2:8080"
-          - "sneakdex-parser-dev-3:8080"
+          - "sneakdex-parser-1:8080"
+          - "sneakdex-parser-2:8080"
+          - "sneakdex-parser-3:8080"
+
+  - job_name: "sneakdex-indexer"
+    static_configs:
+      - targets: ["sneakdex-indexer:8080"]
+
+  - job_name: "sneakdex-app"
+    static_configs:
+      - targets: ["sneakdex-app:3000"]
