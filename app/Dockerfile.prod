@@ -1,64 +1,121 @@
-# Stage 1: Dependencies
-FROM node:20-alpine AS deps
+# Multi-stage build for production optimization
+FROM node:20-slim AS base
 
-# Set working directory
+# Install dependencies stage
+FROM base AS deps
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY package*.json ./
+COPY yarn.loc[k] ./
+COPY pnpm-lock.yam[l] ./
 
-# Install dependencies with clean cache
-RUN npm ci
+# Install dependencies based on available lock files
+RUN if [ -f yarn.lock ]; then \
+        yarn install --frozen-lockfile --production=false; \
+    elif [ -f pnpm-lock.yaml ]; then \
+        corepack enable && pnpm install --frozen-lockfile; \
+    elif [ -f package-lock.json ]; then \
+        npm ci; \
+    else \
+        npm install; \
+    fi
 
-# Stage 2: Builder
-FROM node:20-alpine AS builder
+# Build stage
+FROM base AS builder
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
-
-# Set environment variables for production build
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-
-# Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Build the application
-RUN npm run build
+RUN if [ -f yarn.lock ]; then \
+        yarn build; \
+    elif [ -f pnpm-lock.yaml ]; then \
+        corepack enable && pnpm build; \
+    else \
+        npm run build; \
+    fi
 
-# Stage 3: Production runner
-FROM node:20-alpine AS runner
-
-# Set working directory
+# Production dependencies stage
+FROM base AS prod-deps
 WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY yarn.loc[k] ./
+COPY pnpm-lock.yam[l] ./
+
+# Install only production dependencies
+RUN if [ -f yarn.lock ]; then \
+        yarn install --frozen-lockfile --production=true; \
+    elif [ -f pnpm-lock.yaml ]; then \
+        corepack enable && pnpm install --frozen-lockfile --prod; \
+    elif [ -f package-lock.json ]; then \
+        npm ci --only=production; \
+    else \
+        npm install --only=production; \
+    fi
+
+# Production stage
+FROM base AS production
+
+# Install runtime dependencies for transformers and ML packages
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+WORKDIR /app
+
+# Copy production dependencies
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+# Copy built application
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/package.json ./package.json
+
+# Copy built Next.js files
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Create cache directory with proper permissions
+RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-
-# Create non-root user for security
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
-
-# Set ownership for the Next.js standalone directory and static files
-RUN mkdir -p /app/.next/standalone /app/.next/static && \
-    chown -R nextjs:nodejs /app
-
-# Copy necessary files from builder stage
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 # Switch to non-root user
 USER nextjs
 
-# Set port exposure
+# Expose port
 EXPOSE 3000
 
-# Set environment variables
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
 
-# Command to run the application
+# Start the application
 CMD ["node", "server.js"]

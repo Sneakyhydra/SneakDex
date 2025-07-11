@@ -11,8 +11,9 @@ volumes:
   redis-data:
 
 services:
+
   kafka:
-    image: bitnami/kafka:latest
+    image: bitnami/kafka:4.0.0
     container_name: sneakdex-kafka
     ports:
       - "9092:9092"
@@ -29,7 +30,6 @@ services:
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_MESSAGE_MAX_BYTES=10485760
       - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=10485760
-      # Enable JMX for metrics
       - KAFKA_ENABLE_KRAFT=yes
       - KAFKA_CFG_JMX_PORT=9999
     volumes:
@@ -38,8 +38,7 @@ services:
       - monitoring
       - sneakdex-network
     healthcheck:
-      test:
-        ["CMD-SHELL", "kafka-topics.sh --bootstrap-server 0.0.0.0:9092 --list"]
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -68,8 +67,6 @@ services:
   crawler:
     build:
       context: ./services/crawler
-      dockerfile: Dockerfile
-    # For Air live reload, enable init to true
     init: true
     environment:
       - CRAWL_DEPTH=3
@@ -79,25 +76,18 @@ services:
       - KAFKA_TOPIC_HTML=raw-html
       - LOG_LEVEL=info
       - MAX_CONCURRENCY=16
-      - MAX_CONTENT_SIZE=10485760 # 10 MB
+      - MAX_CONTENT_SIZE=10485760
       - MAX_PAGES=10000
       - MONITOR_PORT=8080
       - REDIS_DB=0
       - REDIS_HOST=redis
-      - REDIS_PASSWORD=""
       - REDIS_PORT=6379
-      - REDIS_RETRY_MAX=3
-      - REDIS_TIMEOUT=5s
       - REQUEST_DELAY=50ms
       - REQUEST_TIMEOUT=10s
       - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
       - USER_AGENT=Sneakdex/1.0
     volumes:
-      - ./services/crawler/cmd:/app/cmd
-      - ./services/crawler/internal:/app/internal
-      - ./services/crawler/.air.toml:/app/.air.toml
-      - ./services/crawler/go.mod:/app/go.mod
-      - ./services/crawler/go.sum:/app/go.sum
+      - ./services/crawler:/app
     depends_on:
       kafka:
         condition: service_healthy
@@ -111,26 +101,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 1000s
+      start_period: 30s
     restart: unless-stopped
 
   parser:
     build:
       context: ./services/parser
-      dockerfile: Dockerfile
     environment:
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_GROUP_ID=parser-group
       - KAFKA_TOPIC_HTML=raw-html
       - KAFKA_TOPIC_PARSED=parsed-pages
       - MAX_CONCURRENCY=64
-      - MAX_CONTENT_LENGTH=5242880 # 5 MB
-      - MIN_CONTENT_LENGTH=1024 # 1 KB
+      - MAX_CONTENT_LENGTH=5242880
+      - MIN_CONTENT_LENGTH=1024
       - MONITOR_PORT=8080
       - RUST_LOG=info
     volumes:
       - ./services/parser:/app
-      - /app/target
     depends_on:
       kafka:
         condition: service_healthy
@@ -144,17 +132,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 1000s
+      start_period: 30s
     restart: unless-stopped
 
   indexer:
     build:
       context: ./services/indexer
-      dockerfile: Dockerfile
     container_name: sneakdex-indexer
     environment:
-      - BATCH_SIZE=500
-      - INDEX_OUTPUT_PATH=/app/data/index
+      - BATCH_SIZE=50
       - INDEX_SAVE_INTERVAL=5000
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_GROUP_ID=indexer-group
@@ -168,8 +154,7 @@ services:
       - PYTHON_ENV=development
       - TF_IDF_MIN_DF=2
     volumes:
-      - ./services/indexer/indexer:/app/indexer
-      - ./services/indexer/requirements.txt:/app/requirements.txt
+      - ./services/indexer:/app
     depends_on:
       kafka:
         condition: service_healthy
@@ -183,24 +168,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 1000s
+      start_period: 30s
     restart: unless-stopped
 
   app:
     build:
       context: ./app
-      dockerfile: Dockerfile
     container_name: sneakdex-app
     environment:
-      NODE_ENV: development
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
     ports:
       - "3000:3000"
     volumes:
-      - /app/node_modules
       - ./app:/app
-    depends_on:
-      indexer:
-        condition: service_started
+      - /app/node_modules
+      - /app/.next
     networks:
       - monitoring
       - sneakdex-network
@@ -209,11 +193,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 120s
+      start_period: 60s
     restart: unless-stopped
 
   kafka-exporter:
-    image: danielqsj/kafka-exporter:latest
+    image: danielqsj/kafka-exporter:v1.9.0
     container_name: kafka-exporter
     ports:
       - "9308:9308"
@@ -221,7 +205,6 @@ services:
       - "--kafka.server=kafka:9092"
       - "--web.listen-address=:9308"
     networks:
-      - sneakdex-network
       - monitoring
     depends_on:
       kafka:
@@ -229,7 +212,7 @@ services:
     restart: unless-stopped
 
   redis-exporter:
-    image: oliver006/redis_exporter:latest
+    image: oliver006/redis_exporter:v1.74.0
     container_name: redis-exporter
     ports:
       - "9121:9121"
@@ -237,7 +220,6 @@ services:
       - "--redis.addr=redis://redis:6379"
     networks:
       - monitoring
-      - sneakdex-network
     depends_on:
       redis:
         condition: service_healthy
@@ -249,8 +231,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -260,13 +241,12 @@ services:
       - "--storage.tsdb.retention.time=200h"
       - "--web.enable-lifecycle"
     networks:
-      - sneakdex-network
       - monitoring
-    depends_on:
-      kafka-exporter:
-        condition: service_started
-      redis-exporter:
-        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
 
   grafana:
@@ -275,9 +255,15 @@ services:
     ports:
       - "4000:3000"
     environment:
+      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=sneaky
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      prometheus:
+        condition: service_healthy
     networks:
       - monitoring
     restart: unless-stopped

@@ -21,10 +21,6 @@ class IndexerConfig(BaseSettings):
         default="indexer-group", validation_alias="KAFKA_GROUP_ID"
     )
 
-    index_output_path: str = Field(
-        default="/app/data/index", validation_alias="INDEX_OUTPUT_PATH"
-    )
-
     tf_idf_min_df: int = Field(default=2, validation_alias="TF_IDF_MIN_DF")
     max_features: int = Field(default=100_000, validation_alias="MAX_FEATURES")
     batch_size: int = Field(default=1_000, validation_alias="BATCH_SIZE")
@@ -45,10 +41,3 @@ class IndexerConfig(BaseSettings):
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
     }
-
-    @field_validator("index_output_path")
-    @classmethod
-    def validate_index_output_path(cls, v: str) -> str:
-        path = Path(v)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return str(path)

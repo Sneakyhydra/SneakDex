@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import PointStruct, VectorParams, Distance
 
-from indexer.config import IndexerConfig
+from config import IndexerConfig
 
 log = logging.getLogger("indexer")
 logging.basicConfig(level=logging.INFO)

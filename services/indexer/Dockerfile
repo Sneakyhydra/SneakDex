@@ -19,6 +19,6 @@ ENV PYTHON_ENV=development
 
 # RUN python -c "import nltk; nltk.download('punkt'); nltk.download('punkt_tab'); nltk.download('stopwords')"
 
-VOLUME ["/app", "/app/data"]
+VOLUME ["/app"]
 
-CMD ["watchfiles", "python -m indexer.main", "/app/indexer"]
+CMD ["watchfiles", "python -m main", "/app"]

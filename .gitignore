@@ -13,6 +13,7 @@
 *.bak
 *.tmp
 *.old
+.python-version
 
 # Docker specific files
 docker-compose.override.yml

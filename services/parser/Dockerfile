@@ -12,18 +12,13 @@ RUN apt-get update && \
 # Install cargo-watch for live reload
 RUN cargo install cargo-watch
 
-# Copy manifests for dependency caching
+# Copy manifests first for caching deps
 COPY Cargo.toml Cargo.lock* ./
 
-# Build dependencies (this layer is cached as long as your dependencies don't change)
+# Create dummy main.rs to build deps
+RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build
-RUN rm src/*.rs
-
-# Copy actual source code
-COPY src ./src
-
-# Build the application
-RUN touch src/main.rs && cargo build
+RUN rm -rf src/*
 
 # Copy actual source code
 COPY . .

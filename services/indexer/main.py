@@ -1,4 +1,12 @@
 """
+SneakDex Indexer Service
+
+This package contains the search indexer that consumes parsed pages from Kafka
+and builds inverted indexes for search functionality.
+
+__version__ = "1.0.0"
+__author__ = "Dhruv Rishishwar"
+
 Main entry point for the Modern Indexer service.
 
 - Loads configuration from environment (.env)
@@ -12,9 +20,9 @@ import logging
 from rich.console import Console
 from rich.logging import RichHandler
 
-from indexer.orchestrator import ModernIndexer
-from indexer.config import IndexerConfig
-from indexer.consumer import run_consumer
+from orchestrator import ModernIndexer
+from config import IndexerConfig
+from consumer import run_consumer
 
 console = Console()
 

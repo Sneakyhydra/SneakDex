@@ -1,0 +1,338 @@
+{
+  "id": null,
+  "title": "SneakDex Overview Dashboard",
+  "tags": [
+    "sneakdex",
+    "overview"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Status",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job=~\"crawler|parser|sneakdex-indexer|sneakdex-app\"}",
+          "legendFormat": "{{job}} - {{instance_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Crawler Metrics",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "pages_processed_total",
+          "legendFormat": "{{instance_id}} - Pages Processed"
+        },
+        {
+          "expr": "pages_successful_total",
+          "legendFormat": "{{instance_id}} - Successful"
+        },
+        {
+          "expr": "pages_failed_total",
+          "legendFormat": "{{instance_id}} - Failed"
+        },
+        {
+          "expr": "kafka_successful_total",
+          "legendFormat": "{{instance_id}} - Kafka OK"
+        },
+        {
+          "expr": "kafka_failed_total",
+          "legendFormat": "{{instance_id}} - Kafka Failed"
+        },
+        {
+          "expr": "kafka_errored_total",
+          "legendFormat": "{{instance_id}} - Kafka Error"
+        },
+        {
+          "expr": "redis_successful_total",
+          "legendFormat": "{{instance_id}} - Redis OK"
+        },
+        {
+          "expr": "redis_failed_total",
+          "legendFormat": "{{instance_id}} - Redis Failed"
+        },
+        {
+          "expr": "redis_errored_total",
+          "legendFormat": "{{instance_id}} - Redis Error"
+        },
+        {
+          "expr": "crawler_uptime_seconds",
+          "legendFormat": "{{instance_id}} - Uptime"
+        }
+      ],
+      "yAxes": [
+        {
+          "label": "Count"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 3,
+      "title": "Parser Metrics",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "parser_pages_processed",
+          "legendFormat": "{{instance_id}} - Pages Processed"
+        },
+        {
+          "expr": "parser_pages_successful",
+          "legendFormat": "{{instance_id}} - Successful"
+        },
+        {
+          "expr": "parser_pages_failed",
+          "legendFormat": "{{instance_id}} - Failed"
+        },
+        {
+          "expr": "parser_kafka_successful",
+          "legendFormat": "{{instance_id}} - Kafka OK"
+        },
+        {
+          "expr": "parser_kafka_failed",
+          "legendFormat": "{{instance_id}} - Kafka Failed"
+        },
+        {
+          "expr": "parser_kafka_errored",
+          "legendFormat": "{{instance_id}} - Kafka Error"
+        },
+        {
+          "expr": "parser_last_message_age",
+          "legendFormat": "{{instance_id}} - Last Message Age"
+        },
+        {
+          "expr": "parser_uptime_seconds",
+          "legendFormat": "{{instance_id}} - Uptime"
+        }
+      ],
+      "yAxes": [
+        {
+          "label": "Count"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 4,
+      "title": "Indexer Metrics",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "pages_processed",
+          "legendFormat": "{{instance_id}} - Pages Processed"
+        },
+        {
+          "expr": "pages_successful",
+          "legendFormat": "{{instance_id}} - Successful"
+        },
+        {
+          "expr": "pages_failed",
+          "legendFormat": "{{instance_id}} - Failed"
+        },
+        {
+          "expr": "kafka_successful",
+          "legendFormat": "{{instance_id}} - Kafka OK"
+        },
+        {
+          "expr": "kafka_failed",
+          "legendFormat": "{{instance_id}} - Kafka Failed"
+        },
+        {
+          "expr": "kafka_errored",
+          "legendFormat": "{{instance_id}} - Kafka Error"
+        }
+      ],
+      "yAxes": [
+        {
+          "label": "Count"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 5,
+      "title": "App HTTP Metrics",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total[5m])",
+          "legendFormat": "{{job}} - req/sec"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "95th percentile"
+        },
+        {
+          "expr": "rate(http_requests_total{status=~\"4..|5..\"}[5m]) / rate(http_requests_total[5m])",
+          "legendFormat": "Error Rate"
+        }
+      ],
+      "yAxes": [
+        {
+          "label": "Count / Ratio"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "id": 6,
+      "title": "Kafka Metrics",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "kafka_consumergroup_lag",
+          "legendFormat": "Lag - {{consumergroup}}"
+        },
+        {
+          "expr": "rate(kafka_messages_in_total[5m])",
+          "legendFormat": "Messages In/sec"
+        },
+        {
+          "expr": "kafka_under_replicated_partitions",
+          "legendFormat": "Under Replicated"
+        }
+      ],
+      "yAxes": [
+        {
+          "label": "Count"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "id": 7,
+      "title": "Redis Metrics",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "Memory Used"
+        },
+        {
+          "expr": "redis_connected_clients",
+          "legendFormat": "Clients"
+        },
+        {
+          "expr": "rate(redis_commands_processed_total[5m])",
+          "legendFormat": "Commands/sec"
+        },
+        {
+          "expr": "redis_keyspace_hits / (redis_keyspace_hits + redis_keyspace_misses)",
+          "legendFormat": "Hit Ratio"
+        }
+      ],
+      "yAxes": [
+        {
+          "label": "Count / Ratio"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      }
+    },
+    {
+      "id": 8,
+      "title": "Prometheus Health",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "up",
+          "legendFormat": "{{job}} - {{instance}}"
+        },
+        {
+          "expr": "prometheus_tsdb_head_series",
+          "legendFormat": "Head Series"
+        },
+        {
+          "expr": "prometheus_tsdb_storage_blocks_bytes",
+          "legendFormat": "TSDB Size (bytes)"
+        }
+      ],
+      "yAxes": [
+        {
+          "label": "Count / Bytes"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      }
+    }
+  ]
+}

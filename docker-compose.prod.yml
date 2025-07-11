@@ -5,14 +5,15 @@ networks:
     driver: bridge
 
 volumes:
-  grafana-data:
+  grafana-prod-data:
   kafka-data:
-  prometheus-data:
+  prometheus-prod-data:
   redis-data:
 
 services:
+
   kafka:
-    image: bitnami/kafka:latest
+    image: bitnami/kafka:4.0.0
     container_name: sneakdex-kafka
     ports:
       - "9092:9092"
@@ -29,7 +30,6 @@ services:
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_MESSAGE_MAX_BYTES=10485760
       - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=10485760
-      # Enable JMX for metrics
       - KAFKA_ENABLE_KRAFT=yes
       - KAFKA_CFG_JMX_PORT=9999
     volumes:
@@ -39,7 +39,7 @@ services:
       - sneakdex-network
     healthcheck:
       test:
-        ["CMD-SHELL", "kafka-topics.sh --bootstrap-server 0.0.0.0:9092 --list"]
+        ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -77,15 +77,12 @@ services:
       - KAFKA_TOPIC_HTML=raw-html
       - LOG_LEVEL=info
       - MAX_CONCURRENCY=32
-      - MAX_CONTENT_SIZE=10485760 # 10 MB
+      - MAX_CONTENT_SIZE=10485760
       - MAX_PAGES=10000
       - MONITOR_PORT=8080
       - REDIS_DB=0
       - REDIS_HOST=redis
-      - REDIS_PASSWORD=""
       - REDIS_PORT=6379
-      - REDIS_RETRY_MAX=3
-      - REDIS_TIMEOUT=5s
       - REQUEST_DELAY=50ms
       - REQUEST_TIMEOUT=10s
       - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
@@ -105,7 +102,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 120s
+      start_period: 30s
     restart: unless-stopped
 
   parser-prod:
@@ -118,15 +115,15 @@ services:
       - KAFKA_TOPIC_HTML=raw-html
       - KAFKA_TOPIC_PARSED=parsed-pages
       - MAX_CONCURRENCY=128
-      - MAX_CONTENT_LENGTH=5242880 # 5 MB
-      - MIN_CONTENT_LENGTH=1024 # 1 KB
+      - MAX_CONTENT_LENGTH=5242880
+      - MIN_CONTENT_LENGTH=1024
       - MONITOR_PORT=8080
       - RUST_LOG=info
     depends_on:
       kafka:
         condition: service_healthy
       indexer-prod:
-        condition: service_healthy
+        condition: service_started
     networks:
       - monitoring
       - sneakdex-network
@@ -135,7 +132,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 120s
+      start_period: 30s
     restart: unless-stopped
 
   indexer-prod:
@@ -144,20 +141,24 @@ services:
       dockerfile: Dockerfile.prod
     container_name: sneakdex-indexer-prod
     environment:
-      - BATCH_SIZE=500
-      - INDEX_OUTPUT_PATH=/app/data/index
-      - INDEX_SAVE_INTERVAL=5000
+      - BATCH_SIZE=100
+      - INDEX_SAVE_INTERVAL=10000
       - KAFKA_BROKERS=kafka:9092
-      - KAFKA_GROUP_ID=indexer-group
+      - KAFKA_GROUP_ID=indexer-group-prod
       - KAFKA_TOPIC_PARSED=parsed-pages
-      - MAX_DOCS=10000
-      - MAX_FEATURES=100000
+      - MAX_DOCS=50000
+      - MAX_FEATURES=500000
       - MONITOR_PORT=8080
-      - NUM_CONSUMER_THREADS=2
-      - NUM_WORKER_THREADS=4
-      - PREPROCESSING_WORKERS=4
+      - NUM_CONSUMER_THREADS=4
+      - NUM_WORKER_THREADS=8
+      - PREPROCESSING_WORKERS=6
       - PYTHON_ENV=production
-      - TF_IDF_MIN_DF=2
+      - TF_IDF_MIN_DF=5
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    ports:
+      - "8080"  # Don't expose publicly, use through load balancer
     depends_on:
       kafka:
         condition: service_healthy
@@ -168,34 +169,38 @@ services:
       - sneakdex-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 60s
     restart: unless-stopped
 
   app-prod:
     build:
       context: ./app
       dockerfile: Dockerfile.prod
+      target: production
     container_name: sneakdex-app-prod
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
     ports:
       - "3000:3000"
-    environment:
-      NODE_ENV: production
     networks:
       - monitoring
       - sneakdex-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 60s
     restart: unless-stopped
 
   kafka-exporter:
-    image: danielqsj/kafka-exporter:latest
+    image: danielqsj/kafka-exporter:v1.9.0
     container_name: kafka-exporter
     ports:
       - "9308:9308"
@@ -203,7 +208,6 @@ services:
       - "--kafka.server=kafka:9092"
       - "--web.listen-address=:9308"
     networks:
-      - sneakdex-network
       - monitoring
     depends_on:
       kafka:
@@ -211,7 +215,7 @@ services:
     restart: unless-stopped
 
   redis-exporter:
-    image: oliver006/redis_exporter:latest
+    image: oliver006/redis_exporter:v1.74.0
     container_name: redis-exporter
     ports:
       - "9121:9121"
@@ -219,7 +223,6 @@ services:
       - "--redis.addr=redis://redis:6379"
     networks:
       - monitoring
-      - sneakdex-network
     depends_on:
       redis:
         condition: service_healthy
@@ -231,9 +234,8 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.prod.yml:/etc/prometheus/prometheus.yml
-      - /var/run/docker.sock:/var/run/docker.sock
-      - prometheus-data:/prometheus
+      - ./monitoring/prod/prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml
+      - prometheus-prod-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -242,24 +244,29 @@ services:
       - "--storage.tsdb.retention.time=200h"
       - "--web.enable-lifecycle"
     networks:
-      - sneakdex-network
       - monitoring
-    depends_on:
-      kafka-exporter:
-        condition: service_started
-      redis-exporter:
-        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
 
-  grafana:
+  grafana-prod:
     image: grafana/grafana:latest
-    container_name: grafana
+    container_name: grafana-prod
     ports:
       - "4000:3000"
     environment:
+      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=sneaky
     volumes:
-      - grafana-data:/var/lib/grafana
+      - grafana-prod-data:/var/lib/grafana
+      - ./monitoring/prod/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/prod/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      prometheus-prod:
+        condition: service_healthy
     networks:
       - monitoring
     restart: unless-stopped
