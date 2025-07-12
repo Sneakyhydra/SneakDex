@@ -1,6 +1,4 @@
 networks:
-  monitoring:
-    driver: bridge
   sneakdex-network:
     driver: bridge
 
@@ -26,7 +24,6 @@ services:
       - KAFKA_ENABLE_KRAFT=yes
       - KAFKA_CFG_JMX_PORT=9999
     networks:
-      - monitoring
       - sneakdex-network
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
@@ -56,7 +53,6 @@ services:
       - "6379:6379"
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
-      - monitoring
       - sneakdex-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -79,38 +75,20 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  crawler:
+  crawler-prod:
     build:
       context: ../crawler
-    container_name: crawler
-    init: true
-    environment:
-      - CRAWL_DEPTH=3
-      - ENABLE_DEBUG=false
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_RETRY_MAX=3
-      - KAFKA_TOPIC_HTML=raw-html
-      - LOG_LEVEL=info
-      - MAX_CONCURRENCY=16
-      - MAX_CONTENT_SIZE=10485760
-      - MAX_PAGES=10000
-      - MONITOR_PORT=8080
-      - REDIS_DB=0
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REQUEST_DELAY=50ms
-      - REQUEST_TIMEOUT=10s
-      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
-      - USER_AGENT=Sneakdex/1.0
+      dockerfile: Dockerfile.prod
+    env_file:
+      - ../crawler/.env.production
     depends_on:
       kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
-      parser:
+      parser-prod:
         condition: service_healthy
     networks:
-      - monitoring
       - sneakdex-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -133,24 +111,28 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    labels:
+      - "com.sneakdex.service=crawler"
+      - "com.sneakdex.environment=production"
 
-  parser:
+  parser-prod:
     build:
       context: .
       dockerfile: Dockerfile.prod
-    container_name: parser
     env_file:
       - .env.production
     depends_on:
       kafka:
         condition: service_healthy
     networks:
-      - monitoring
       - sneakdex-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]

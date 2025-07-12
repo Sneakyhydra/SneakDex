@@ -114,13 +114,30 @@ The Sneakdex HTML Parser processes raw HTML documents from Kafka and produces cl
 
 ```env
 KAFKA_BROKERS=kafka:9092
+KAFKA_GROUP_ID=parser-group
 KAFKA_TOPIC_HTML=raw-html
 KAFKA_TOPIC_PARSED=parsed-pages
-KAFKA_GROUP_ID=parser-group
-MAX_CONCURRENCY=8
-MAX_CONTENT_LENGTH=5000000
-MIN_CONTENT_LENGTH=100
+MAX_CONCURRENCY=32
+MAX_CONTENT_LENGTH=5242880
+MIN_CONTENT_LENGTH=1024
 MONITOR_PORT=8080
+CARGO_INCREMENTAL=1
+CARGO_TARGET_DIR=/app/target
+RUST_BACKTRACE=1
+RUST_LOG=info
+```
+
+for production:
+```env
+KAFKA_BROKERS=kafka:9092
+KAFKA_GROUP_ID=parser-group
+KAFKA_TOPIC_HTML=raw-html
+KAFKA_TOPIC_PARSED=parsed-pages
+MAX_CONCURRENCY=64
+MAX_CONTENT_LENGTH=5242880
+MIN_CONTENT_LENGTH=1024
+MONITOR_PORT=8080
+RUST_BACKTRACE=0
 RUST_LOG=info
 ```
 
@@ -146,7 +163,6 @@ Add this to your `docker-compose.yml` alongside Kafka & other services:
 ```yaml
 parser:
   build: .
-  container_name: parser
   env_file:
     - .env
   volumes:
@@ -159,7 +175,6 @@ parser:
     kafka:
       condition: service_healthy
   networks:
-    - monitoring
     - sneakdex-network
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -172,18 +187,16 @@ parser:
 
 or for production:
 ```yaml
-parser:
+parser-prod:
   build:
     context: .
     dockerfile: Dockerfile.prod
-  container_name: parser
   env_file:
     - .env.production
   depends_on:
     kafka:
       condition: service_healthy
   networks:
-    - monitoring
     - sneakdex-network
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]

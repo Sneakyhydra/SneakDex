@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y \
 RUN groupadd -r parser && useradd -r -g parser parser
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/parser /usr/local/bin/parser
+COPY --from=builder /app/target/release/sneakdex-parser /usr/local/bin/parser
 
 # Set ownership and permissions
 RUN chown parser:parser /usr/local/bin/parser

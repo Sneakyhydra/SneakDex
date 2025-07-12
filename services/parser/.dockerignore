@@ -38,6 +38,7 @@ docs/
 
 # Docker
 Dockerfile
+Dockerfile.prod
 .dockerignore
 docker-compose.yml
 docker-compose.prod.yml
@@ -49,6 +50,7 @@ logs/
 
 # Environment variables
 .env
+.env.production
 .env.local
 .env.development.local
 .env.test.local

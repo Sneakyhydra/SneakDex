@@ -338,7 +338,6 @@ crawler-prod:
   build:
     context: .
     dockerfile: Dockerfile.prod
-  init: true
   env_file:
     - .env.production
   depends_on:
