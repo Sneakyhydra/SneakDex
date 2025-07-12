@@ -15,9 +15,9 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
-use crate::config::Config;
-use crate::monitor::Metrics;
-use crate::parser::HtmlParser;
+use crate::internal::config::Config;
+use crate::internal::monitor::Metrics;
+use crate::internal::parser::HtmlParser;
 
 /// Handles Kafka interactions: consuming raw HTML and producing parsed pages.
 pub struct KafkaHandler {
@@ -206,7 +206,7 @@ impl KafkaHandler {
     /// Serialize and send a parsed page to the `parsed-pages` Kafka topic.
     async fn send_parsed_page(
         url: &str,
-        parsed: &crate::models::ParsedPage,
+        parsed: &crate::internal::parser::models::ParsedPage,
         metrics: &Metrics,
         producer: &FutureProducer,
         config: Arc<Config>,

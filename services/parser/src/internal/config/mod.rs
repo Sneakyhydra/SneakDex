@@ -108,15 +108,15 @@ fn default_kafka_group_id() -> String {
 }
 
 fn default_max_concurrency() -> usize {
-    8
+    64
 }
 
 fn default_max_content_length() -> usize {
-    5_000_000
+    5_242_880
 }
 
 fn default_min_content_length() -> usize {
-    100
+    1024
 }
 
 fn default_log_level() -> String {

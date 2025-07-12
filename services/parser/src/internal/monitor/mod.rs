@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::info;
 
-use crate::kafka_client::KafkaHandler;
+use crate::internal::core::KafkaHandler;
 
 /// Metrics shared across the service.
 #[derive(Debug, Clone)]

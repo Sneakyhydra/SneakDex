@@ -9,8 +9,8 @@ use scraper::{Html, Selector};
 use std::io::Cursor;
 use url::Url;
 
+use super::models::{Heading, ImageData, LinkData};
 use super::text_utils::clean_text;
-use crate::models::{Heading, ImageData, LinkData};
 
 // Precompiled selectors for performance
 

@@ -4,17 +4,38 @@ A high-performance HTML parsing service that extracts structured, cleaned conten
 
 ## 📋 Table of Contents
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [API Endpoints](#api-endpoints)
-- [Monitoring & Observability](#monitoring--observability)
-- [Deployment](#deployment)
-- [Troubleshooting](#troubleshooting)
-- [Security](#security)
+- [📝 Sneakdex HTML Parser Service](#-sneakdex-html-parser-service)
+  - [📋 Table of Contents](#-table-of-contents)
+  - [🔍 Overview](#-overview)
+    - [Key Capabilities](#key-capabilities)
+  - [🏗️ Architecture](#️-architecture)
+    - [Components](#components)
+  - [✨ Features](#-features)
+    - [Core Functionality](#core-functionality)
+    - [Reliability \& Performance](#reliability--performance)
+    - [Monitoring \& Operations](#monitoring--operations)
+  - [🔧 Prerequisites](#-prerequisites)
+  - [⚙️ Configuration](#️-configuration)
+    - [Environment Variables](#environment-variables)
+    - [Example .env](#example-env)
+  - [🚀 Usage](#-usage)
+    - [Build \& Run Locally](#build--run-locally)
+    - [Docker Compose Example](#docker-compose-example)
+  - [🔗 API Endpoints](#-api-endpoints)
+    - [Health Check](#health-check)
+    - [Liveness](#liveness)
+    - [Metrics](#metrics)
+  - [📊 Monitoring \& Observability](#-monitoring--observability)
+    - [Metrics Exposed](#metrics-exposed)
+    - [Sample Prometheus Queries](#sample-prometheus-queries)
+  - [🛠️ Deployment](#️-deployment)
+    - [Scaling](#scaling)
+  - [🐛 Troubleshooting](#-troubleshooting)
+    - [Common Issues](#common-issues)
+    - [Debugging](#debugging)
+  - [🔒 Security](#-security)
+  - [📄 Sample ParsedPage Output](#-sample-parsedpage-output)
+  - [📜 License](#-license)
 
 ## 🔍 Overview
 
@@ -69,10 +90,9 @@ The Sneakdex HTML Parser processes raw HTML documents from Kafka and produces cl
 
 ## 🔧 Prerequisites
 
-- **Rust**: ≥ 1.70
-- **Kafka**: ≥ 3.x
+- **Rust**: = 1.82
+- **Kafka**: = 4.0.0
 - **Docker**: optional for Kafka & deployment
-- **Memory**: ≥ 512MB per instance
 
 ## ⚙️ Configuration
 
@@ -124,35 +144,79 @@ cargo run
 Add this to your `docker-compose.yml` alongside Kafka & other services:
 
 ```yaml
-parser-dev:
-    build:
-      context: ./services/parser
-      dockerfile: Dockerfile.dev
-    environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_HTML=raw-html
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - KAFKA_GROUP_ID=parser-group
-      - MAX_CONCURRENCY=64
-      - MAX_CONTENT_LENGTH=5242880 # 5 MB
-      - MIN_CONTENT_LENGTH=1024 # 1 KB
-      - RUST_LOG=info
-      - MONITOR_PORT=8080
-    volumes:
-      - ./services/parser:/app
-    depends_on:
-      kafka:
-        condition: service_healthy
-    networks:
-      - sneakdex-network
-      - monitoring
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 1000s
-    restart: unless-stopped
+parser:
+  build: .
+  container_name: parser
+  env_file:
+    - .env
+  volumes:
+    - .:/app
+    - cargo-registry:/usr/local/cargo/registry
+    - cargo-git:/usr/local/cargo/git
+    - target-cache:/app/target
+  working_dir: /app
+  depends_on:
+    kafka:
+      condition: service_healthy
+  networks:
+    - monitoring
+    - sneakdex-network
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+  restart: unless-stopped
+```
+
+or for production:
+```yaml
+parser:
+  build:
+    context: .
+    dockerfile: Dockerfile.prod
+  container_name: parser
+  env_file:
+    - .env.production
+  depends_on:
+    kafka:
+      condition: service_healthy
+  networks:
+    - monitoring
+    - sneakdex-network
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+  restart: unless-stopped
+  deploy:
+    resources:
+      limits:
+        cpus: '2.0'
+        memory: 1G
+      reservations:
+        cpus: '1.0'
+        memory: 512M
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - NET_BIND_SERVICE
+  read_only: true
+  tmpfs:
+    - /tmp:noexec,nosuid,size=100m
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  labels:
+    - "com.sneakdex.service=parser"
+    - "com.sneakdex.environment=production"
 ```
 
 ## 🔗 API Endpoints
@@ -185,6 +249,13 @@ Sample Response:
 
 Returns HTTP 200 OK if service is alive.
 
+```json
+{
+  "status": "alive",
+  "timestamp": "1996-12-19T16:39:57-08:00"
+}
+```
+
 ### Metrics
 
 **GET** `/metrics`
@@ -195,18 +266,20 @@ Prometheus-formatted metrics.
 
 ### Metrics Exposed
 
-- `pages_processed_total`
-- `pages_failed_total`
-- `kafka_successful_total`
+- `parser_pages_processed`
+- `parser_pages_successful`
+- `parser_pages_failed`
+- `parser_kafka_successful`
+- `parser_kafka_failed`
+- `parser_kafka_errored`
+- `parser_last_message_age`
 - `parser_uptime_seconds`
-- `content_too_large_total`
-- `content_too_short_total`
 
 ### Sample Prometheus Queries
 
 ```promql
-rate(pages_processed_total[5m])
-pages_failed_total / pages_processed_total * 100
+rate(parser_pages_processed[5m])
+parser_pages_failed / parser_pages_processed * 100
 up{job="parser"} == 0
 ```
 
@@ -240,8 +313,7 @@ RUST_LOG=debug ./parser
 
 - Enforces maximum & minimum content size
 - Validates Kafka payloads
-- Does not execute or render untrusted HTML
-- Runs as a non-root user when containerized
+- Runs as a non-root user when containerized in production
 
 ## 📄 Sample ParsedPage Output
 
@@ -249,7 +321,7 @@ RUST_LOG=debug ./parser
 {
   "url": "https://example.com",
   "title": "Example Domain",
-  "description": "Illustrative example domain.",
+  "description": "(OPTIONAL FIELD) Illustrative example domain.",
   "cleaned_text": "Example Domain This domain is for use in illustrative examples.",
   "headings": [
     { "level": 1, "text": "Example Domain" }
@@ -257,11 +329,13 @@ RUST_LOG=debug ./parser
   "links": [
     { "url": "https://www.iana.org/domains/example", "text": "More information.", "is_external": true }
   ],
-  "images": [],
-  "canonical_url": null,
-  "language": "en",
+  "images": [
+    { "src": "https://image-url", "alt": "(OPTIONAL FIELD)", "title": "(OPTIONAL FIELD)"}
+  ],
+  "canonical_url": "(OPTIONAL FIELD)",
+  "language": "(OPTIONAL FIELD) en",
   "word_count": 42,
-  "meta_keywords": null,
+  "meta_keywords": "(OPTIONAL FIELD)",
   "timestamp": "2025-07-10T12:34:56Z",
   "content_type": "text/html",
   "encoding": "utf-8"

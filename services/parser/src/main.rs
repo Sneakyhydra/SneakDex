@@ -7,17 +7,12 @@ use anyhow::Result;
 use std::sync::Arc;
 use tracing::error;
 
-mod config;
-mod error;
-mod kafka_client;
-mod models;
-mod monitor;
-mod parser;
+mod internal;
 
-use config::Config;
-use kafka_client::KafkaHandler;
-use monitor::{start_monitor_server, Metrics};
-use parser::HtmlParser;
+use internal::config::Config;
+use internal::core::KafkaHandler;
+use internal::monitor::{start_monitor_server, Metrics};
+use internal::parser::HtmlParser;
 
 /// Initializes and runs the parser service.
 ///
@@ -25,6 +20,10 @@ use parser::HtmlParser;
 /// sets up logging, initializes Kafka consumer/producer, and starts
 /// processing messages.
 async fn run() -> Result<()> {
+    // Load .env file if it exists (for local development)
+    // This will be ignored in Docker if env vars are already set
+    dotenv::dotenv().ok();
+
     // Load config from environment; fall back to defaults if missing.
     let config: Arc<Config> = Arc::new(envy::from_env().unwrap_or_default());
     config.init_logging();
@@ -38,7 +37,7 @@ async fn run() -> Result<()> {
 
     // Start monitor server in background
     let monitor_port = config.monitor_port;
-    let metrics_clone = metrics.clone();
+    let metrics_clone = metrics.clone(); // Members are wrapped in Arc
     let kafka_clone = kafka_handler.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();

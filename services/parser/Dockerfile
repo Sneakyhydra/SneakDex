@@ -3,32 +3,33 @@ FROM rust:1.82-slim
 # Set working directory
 WORKDIR /app
 
-# Install development dependencies
-RUN apt-get update && \
-    apt-get install -y pkg-config libssl-dev cmake g++ curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Install system dependencies and cargo tools in one layer
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-watch cargo-chef
 
-# Install cargo-watch for live reload
-RUN cargo install cargo-watch
+# Use cargo-chef for better dependency caching
+COPY Cargo.toml Cargo.lock ./
 
-# Copy manifests first for caching deps
-COPY Cargo.toml Cargo.lock* ./
-
-# Create dummy main.rs to build deps
+# Create dummy source to satisfy cargo-chef
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build
-RUN rm -rf src/*
 
-# Copy actual source code
-COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+RUN cargo chef cook --recipe-path recipe.json
 
-# Set environment variables
-ENV RUST_BACKTRACE=1
-ENV RUST_LOG=debug
+# Clean up dummy source
+RUN rm -rf src
 
-# Expose volume for mounting source code
-VOLUME ["/app"]
+# Development environment with optimizations
+ENV RUST_BACKTRACE=1 \
+    RUST_LOG=info \
+    CARGO_INCREMENTAL=1 \
+    CARGO_TARGET_DIR=/app/target
 
 # Live reload on code changes
 CMD ["cargo", "watch", "-x", "run"]

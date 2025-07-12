@@ -9,14 +9,15 @@ use scraper::{Html, Selector};
 
 mod extractors;
 mod language_detector;
+pub mod models;
 mod text_utils;
 
 use extractors::{extract_headings, extract_images, extract_links, extract_main_content};
 use language_detector::detect_language;
+use models::ParsedPage;
 use text_utils::clean_text;
 
-use crate::config::Config;
-use crate::models::ParsedPage;
+use crate::internal::config::Config;
 
 /// HTML parser that extracts structured data from a page.
 ///
