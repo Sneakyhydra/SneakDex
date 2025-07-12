@@ -1,4 +1,4 @@
-//! Kafka client for the parser service.
+//! Core of the parser service.
 //!
 //! This module provides a `KafkaHandler` that consumes raw HTML messages
 //! from Kafka, parses them, and produces structured `ParsedPage` messages
@@ -11,8 +11,8 @@ use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Semaphore;
+use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 
 use crate::internal::config::Config;
@@ -82,73 +82,98 @@ impl KafkaHandler {
         }
     }
 
-    /// Start processing messages in an infinite loop.
+    /// Start processing messages in an infinite loop with graceful shutdown.
     ///
     /// For each message, the HTML payload is parsed using the provided `HtmlParser`
     /// and the result is sent to the parsed-pages Kafka topic.
-    pub async fn start_processing(&self, parser: HtmlParser, metrics: Metrics) -> Result<()> {
+    pub async fn start_processing(
+        &self,
+        parser: HtmlParser,
+        metrics: Metrics,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> anyhow::Result<()> {
         let semaphore = Arc::new(Semaphore::new(self.config.max_concurrency));
+
         info!(
             "Starting with max {} concurrent workers, waiting for messages...",
             self.config.max_concurrency
         );
 
         loop {
-            let msg = match self.consumer.recv().await {
-                Ok(msg) => msg,
-                Err(e) => {
-                    error!("Failed to receive message from Kafka: {}", e);
-                    metrics.inc_kafka_errored();
-                    continue;
-                }
-            };
-
-            let permit = match semaphore.clone().acquire_owned().await {
-                Ok(permit) => permit,
-                Err(e) => {
-                    error!("Semaphore acquisition failed: {}", e);
-                    continue;
-                }
-            };
-
-            let parser_clone = parser.clone();
-            let metrics_clone = metrics.clone();
-            let producer_clone = self.producer.clone();
-            let config_clone = self.config.clone();
-            let owned_msg = msg.detach();
-
-            // Spawn a task to handle this message
-            tokio::spawn(async move {
-                if metrics_clone.pages_processed.load(Ordering::Relaxed) % 100 == 0 {
-                    info!(
-                    "Metrics: processed={}, successful={}, failed={}, kafka_ok={}, kafka_fail={}, kafka_err={}",
-                    metrics_clone.pages_processed.load(Ordering::Relaxed),
-                    metrics_clone.pages_successful.load(Ordering::Relaxed),
-                    metrics_clone.pages_failed.load(Ordering::Relaxed),
-                    metrics_clone.kafka_successful.load(Ordering::Relaxed),
-                    metrics_clone.kafka_failed.load(Ordering::Relaxed),
-                    metrics_clone.kafka_errored.load(Ordering::Relaxed),
-                );
+            tokio::select! {
+                // watch for shutdown
+                res = shutdown.changed() => {
+                    if res.is_ok() {
+                        info!("Shutdown signal received, stopping Kafka processing loop.");
+                        sleep(Duration::from_secs(10)).await;
+                        break;
+                    } else {
+                        error!("Shutdown channel closed unexpectedly.");
+                        sleep(Duration::from_secs(10)).await;
+                        break;
+                    }
                 }
 
-                metrics_clone.inc_pages_processed();
+                // process Kafka messages
+                msg_res = self.consumer.recv() => {
+                    let msg = match msg_res {
+                        Ok(msg) => msg,
+                        Err(e) => {
+                            error!("Failed to receive message from Kafka: {}", e);
+                            metrics.inc_kafka_errored();
+                            continue;
+                        }
+                    };
 
-                if let Err(e) = KafkaHandler::process_message(
-                    &owned_msg,
-                    &parser_clone,
-                    &metrics_clone,
-                    &producer_clone,
-                    Arc::clone(&config_clone),
-                )
-                .await
-                {
-                    error!("Error processing message: {}", e);
-                    metrics_clone.inc_pages_failed();
+                    let permit = match semaphore.clone().acquire_owned().await {
+                        Ok(permit) => permit,
+                        Err(e) => {
+                            error!("Semaphore acquisition failed: {}", e);
+                            continue;
+                        }
+                    };
+
+                    let parser_clone = parser.clone();
+                    let metrics_clone = metrics.clone();
+                    let producer_clone = self.producer.clone();
+                    let config_clone = self.config.clone();
+                    let owned_msg = msg.detach();
+
+                    // spawn a task to process the message
+                    tokio::spawn(async move {
+                        if metrics_clone.pages_processed.load(Ordering::Relaxed) % 100 == 0 {
+                            info!(
+                                "Metrics: processed={}, successful={}, failed={}, kafka_ok={}, kafka_fail={}, kafka_err={}",
+                                metrics_clone.pages_processed.load(Ordering::Relaxed),
+                                metrics_clone.pages_successful.load(Ordering::Relaxed),
+                                metrics_clone.pages_failed.load(Ordering::Relaxed),
+                                metrics_clone.kafka_successful.load(Ordering::Relaxed),
+                                metrics_clone.kafka_failed.load(Ordering::Relaxed),
+                                metrics_clone.kafka_errored.load(Ordering::Relaxed),
+                            );
+                        }
+
+                        metrics_clone.inc_pages_processed();
+
+                        if let Err(e) = KafkaHandler::process_message(
+                            &owned_msg,
+                            &parser_clone,
+                            &metrics_clone,
+                            &producer_clone,
+                            Arc::clone(&config_clone),
+                        ).await {
+                            error!("Error processing message: {}", e);
+                            metrics_clone.inc_pages_failed();
+                        }
+
+                        drop(permit); // release the semaphore slot
+                    });
                 }
-
-                drop(permit); // release the semaphore slot
-            });
+            }
         }
+
+        info!("Kafka processing loop exited.");
+        Ok(())
     }
 
     /// Process a single Kafka message.
