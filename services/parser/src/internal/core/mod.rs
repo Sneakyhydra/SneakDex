@@ -36,7 +36,7 @@ impl KafkaHandler {
     /// Returns an error if the Kafka consumer or producer cannot be created or
     /// if subscribing to the topic fails.
     pub async fn new(config: Arc<Config>) -> Result<Self> {
-        info!("Sneakdex Parser Starting...");
+        info!("SneakDex Parser Starting...");
         debug!("Configuration: {:?}", config);
 
         // Initialize Kafka consumer.

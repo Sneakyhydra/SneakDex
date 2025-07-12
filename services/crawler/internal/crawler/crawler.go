@@ -1,4 +1,4 @@
-// Package crawler implements the core web crawling functionality for the Sneakdex system.
+// Package crawler implements the core web crawling functionality for the SneakDex system.
 // It provides a distributed crawler that uses Redis for URL queue management and Kafka
 // for publishing discovered content. The crawler is designed to be scalable, resilient,
 // and observant of robots.txt and rate limiting policies.

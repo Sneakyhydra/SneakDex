@@ -1,10 +1,10 @@
-# SneakDex Web Crawler Service
+# SneakDex Indexer Service
 
 A high-performance, distributed web crawler service designed for enterprise-scale content discovery and processing. Built with Go for optimal performance and resource efficiency.
 
 ## 📋 Table of Contents
 
-- [SneakDex Web Crawler Service](#sneakdex-web-crawler-service)
+- [SneakDex Indexer Service](#sneakdex-indexer-service)
   - [📋 Table of Contents](#-table-of-contents)
   - [🔍 Overview](#-overview)
     - [Key Capabilities](#key-capabilities)

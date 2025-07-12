@@ -1,4 +1,4 @@
-// Package logger provides structured logging configuration for the Sneakdex crawler.
+// Package logger provides structured logging configuration for the SneakDex crawler.
 // It configures logrus with JSON formatting for structured log output suitable
 // for production environments and log aggregation systems.
 //

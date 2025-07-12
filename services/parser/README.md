@@ -1,10 +1,10 @@
-# 📝 Sneakdex HTML Parser Service
+# 📝 SneakDex HTML Parser Service
 
 A high-performance HTML parsing service that extracts structured, cleaned content from crawled web pages. Built with Rust for speed, safety, and reliability.
 
 ## 📋 Table of Contents
 
-- [📝 Sneakdex HTML Parser Service](#-sneakdex-html-parser-service)
+- [📝 SneakDex HTML Parser Service](#-sneakdex-html-parser-service)
   - [📋 Table of Contents](#-table-of-contents)
   - [🔍 Overview](#-overview)
     - [Key Capabilities](#key-capabilities)
@@ -39,7 +39,7 @@ A high-performance HTML parsing service that extracts structured, cleaned conten
 
 ## 🔍 Overview
 
-The Sneakdex HTML Parser processes raw HTML documents from Kafka and produces clean, structured data suitable for indexing or downstream analysis. It enforces strict size/content validation, extracts readable text and metadata, and detects document language.
+The SneakDex HTML Parser processes raw HTML documents from Kafka and produces clean, structured data suitable for indexing or downstream analysis. It enforces strict size/content validation, extracts readable text and metadata, and detects document language.
 
 ### Key Capabilities
 

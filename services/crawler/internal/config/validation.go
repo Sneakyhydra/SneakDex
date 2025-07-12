@@ -252,7 +252,7 @@ func (c *Config) validateApplication() error {
 		return &ConfigError{
 			Field:   "USER_AGENT",
 			Reason:  "cannot be empty for responsible web crawling",
-			Example: "Sneakdex/1.0",
+			Example: "SneakDex/1.0",
 		}
 	}
 

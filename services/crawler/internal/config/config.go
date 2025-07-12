@@ -1,4 +1,4 @@
-// Package config provides configuration management for the Sneakdex crawler service.
+// Package config provides configuration management for the SneakDex crawler service.
 // It handles loading configuration from environment variables with sensible defaults,
 // comprehensive validation, and structured error reporting.
 //
@@ -60,7 +60,7 @@ type Config struct {
 
 	// Application Settings - Logging, monitoring, and operational parameters
 	LogLevel    string `envconfig:"LOG_LEVEL" default:"info"`
-	UserAgent   string `envconfig:"USER_AGENT" default:"Sneakdex/1.0"`
+	UserAgent   string `envconfig:"USER_AGENT" default:"SneakDex/1.0"`
 	EnableDebug bool   `envconfig:"ENABLE_DEBUG" default:"false"`
 	MonitorPort int    `envconfig:"MONITOR_PORT" default:"8080"`
 }

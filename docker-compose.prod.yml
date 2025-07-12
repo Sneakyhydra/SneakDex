@@ -86,7 +86,7 @@ services:
       - REQUEST_DELAY=50ms
       - REQUEST_TIMEOUT=10s
       - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
-      - USER_AGENT=Sneakdex/1.0
+      - USER_AGENT=SneakDex/1.0
     depends_on:
       kafka:
         condition: service_healthy

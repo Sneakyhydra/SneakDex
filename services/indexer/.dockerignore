@@ -1,0 +1,111 @@
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.env/
+pip-selfcheck.json
+
+# Package management
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+docs/
+*.md
+
+# Docker
+Dockerfile
+Dockerfile.prod
+.dockerignore
+docker-compose.yml
+docker-compose.prod.yml
+.docker/
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.production
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# CI/CD
+.github/
+.travis.yml
+.circleci/
+.gitlab-ci.yml
+
+# Deployment
+deployments/
+k8s/
+helm/
+terraform/
+
+# Development tools
+Makefile
+scripts/dev/
+.pre-commit-config.yaml
+
+# Python-specific development
+*.ipynb_checkpoints
+.ipynb_checkpoints/
+.jupyter/
+.pylintrc
+setup.cfg
+pyproject.toml
+tox.ini
+.bandit
+.flake8

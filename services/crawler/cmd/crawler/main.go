@@ -1,6 +1,6 @@
-// Package main implements the entry point for the Sneakdex web crawler service.
+// Package main implements the entry point for the SneakDex web crawler service.
 // This application provides a production-ready web crawler that discovers and processes
-// web content for the Sneakdex system, with comprehensive error handling, graceful
+// web content for the SneakDex system, with comprehensive error handling, graceful
 // shutdown, and operational monitoring.
 //
 // The crawler service integrates multiple components:
@@ -66,7 +66,7 @@ func main() {
 
 // run contains the main application logic and returns an exit code
 func run() exitCode {
-	logrus.Info("Sneakdex Crawler Starting...")
+	logrus.Info("SneakDex Crawler Starting...")
 
 	var cfg *config.Config
 	var log *logrus.Logger
