@@ -23,8 +23,10 @@ go.work.sum
 
 # Env and Data files
 .env
+.env.production
 tmp/
 data/
+bin/
 
 # Log files
 *.log

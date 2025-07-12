@@ -1,24 +1,67 @@
 # Sneakdex Web Crawler Service
 
-[![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org)
-[![Build Status](https://img.shields.io/badge/Build-Passing-green.svg)]()
-
 A high-performance, distributed web crawler service designed for enterprise-scale content discovery and processing. Built with Go for optimal performance and resource efficiency.
 
 ## 📋 Table of Contents
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [API Endpoints](#api-endpoints)
-- [Monitoring & Observability](#monitoring--observability)
-- [Deployment](#deployment)
-- [Troubleshooting](#troubleshooting)
-- [Performance Tuning](#performance-tuning)
-- [Security](#security)
+- [Sneakdex Web Crawler Service](#sneakdex-web-crawler-service)
+  - [📋 Table of Contents](#-table-of-contents)
+  - [🔍 Overview](#-overview)
+    - [Key Capabilities](#key-capabilities)
+  - [🏗️ Architecture](#️-architecture)
+    - [Components](#components)
+  - [✨ Features](#-features)
+    - [Core Functionality](#core-functionality)
+    - [Reliability \& Performance](#reliability--performance)
+    - [Monitoring \& Operations](#monitoring--operations)
+    - [Security \& Compliance](#security--compliance)
+  - [🔧 Prerequisites](#-prerequisites)
+    - [System Requirements](#system-requirements)
+    - [Infrastructure Dependencies](#infrastructure-dependencies)
+    - [Network Requirements](#network-requirements)
+  - [⚙️ Configuration](#️-configuration)
+    - [Environment Variables](#environment-variables)
+      - [Redis Configuration](#redis-configuration)
+      - [Kafka Configuration](#kafka-configuration)
+      - [Crawling Behavior](#crawling-behavior)
+      - [Performance Settings](#performance-settings)
+      - [Application Settings](#application-settings)
+    - [Configuration Examples](#configuration-examples)
+      - [Production Environment](#production-environment)
+      - [Development Environment](#development-environment)
+  - [🚀 Usage](#-usage)
+    - [Basic Operation](#basic-operation)
+    - [Docker Compose Example](#docker-compose-example)
+  - [🔗 API Endpoints](#-api-endpoints)
+    - [Health Check Endpoint](#health-check-endpoint)
+    - [Metrics Endpoint](#metrics-endpoint)
+  - [📊 Monitoring \& Observability](#-monitoring--observability)
+    - [Metrics Exposed](#metrics-exposed)
+    - [Key Performance Indicators (KPIs)](#key-performance-indicators-kpis)
+      - [Throughput Metrics](#throughput-metrics)
+      - [Health Metrics](#health-metrics)
+    - [Sample Prometheus Queries](#sample-prometheus-queries)
+  - [🚀 Deployment](#-deployment)
+    - [Scaling Guidelines](#scaling-guidelines)
+      - [Horizontal Scaling](#horizontal-scaling)
+      - [Vertical Scaling](#vertical-scaling)
+  - [🐛 Troubleshooting](#-troubleshooting)
+    - [Common Issues](#common-issues)
+      - [1. Redis Connection Failures](#1-redis-connection-failures)
+      - [2. Kafka Publishing Errors](#2-kafka-publishing-errors)
+      - [3. High Memory Usage](#3-high-memory-usage)
+      - [4. Slow Crawling Performance](#4-slow-crawling-performance)
+    - [Debug Mode](#debug-mode)
+  - [🔒 Security](#-security)
+    - [Network Security](#network-security)
+      - [Firewall Rules](#firewall-rules)
+    - [URL Validation Security](#url-validation-security)
+      - [IP Address Filtering](#ip-address-filtering)
+      - [Domain Filtering](#domain-filtering)
+      - [Content Size Limits](#content-size-limits)
+    - [Container Security](#container-security)
+      - [Dockerfile Security Best Practices](#dockerfile-security-best-practices)
+  - [📜 License](#-license)
 
 ## 🔍 Overview
 
@@ -117,10 +160,9 @@ Optional Enterprise Configuration:
 
 ### System Requirements
 
-- **Go**: Version 1.24 or higher
-- **Redis**: Version 7.0+ (for URL queue management)
-- **Kafka**: Version 3.0+ (for content publishing)
-- **Memory**: Minimum 2GB RAM per instance (1GB for light workloads)
+- **Go**: = 1.24
+- **Redis**: = 7.0 (for URL queue management)
+- **Kafka**: = 4.0.0 (for content publishing)
 
 ### Infrastructure Dependencies
 
@@ -193,31 +235,50 @@ MONITOR_PORT=8080                     # Health check and metrics port
 
 #### Production Environment
 
-```bash
-# Production configuration for high-throughput crawling
-export REDIS_HOST=redis-cluster.prod.company.com
-export REDIS_PORT=6379
-export REDIS_DB=0
-export KAFKA_BROKERS=kafka1.prod:9092,kafka2.prod:9092,kafka3.prod:9092
-export KAFKA_TOPIC_HTML=raw-html
-export MAX_CONCURRENCY=64
-export MAX_PAGES=100000
-export REQUEST_DELAY=50ms
-export LOG_LEVEL=info
-export MONITOR_PORT=8080
+```env
+CRAWL_DEPTH=3
+ENABLE_DEBUG=false
+KAFKA_BROKERS=kafka:9092
+KAFKA_RETRY_MAX=3
+KAFKA_TOPIC_HTML=raw-html
+LOG_LEVEL=info
+MAX_CONCURRENCY=64
+MAX_CONTENT_SIZE=10485760
+MAX_PAGES=10000
+MONITOR_PORT=8080
+REDIS_DB=0
+REDIS_HOST=redis
+REDIS_PORT=6379
+REQUEST_DELAY=10ms
+REQUEST_TIMEOUT=10s
+START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
+USER_AGENT=Sneakdex/1.0
+GO_ENV=production
+CGO_ENABLED=0
 ```
 
 #### Development Environment
 
-```bash
-# Development configuration for testing
-export REDIS_HOST=redis
-export KAFKA_BROKERS=kafka:9092
-export MAX_CONCURRENCY=8
-export MAX_PAGES=100
-export REQUEST_DELAY=500ms
-export LOG_LEVEL=debug
-export ENABLE_DEBUG=true
+```env
+CRAWL_DEPTH=3
+ENABLE_DEBUG=false
+KAFKA_BROKERS=kafka:9092
+KAFKA_RETRY_MAX=3
+KAFKA_TOPIC_HTML=raw-html
+LOG_LEVEL=info
+MAX_CONCURRENCY=16
+MAX_CONTENT_SIZE=10485760
+MAX_PAGES=10000
+MONITOR_PORT=8080
+REDIS_DB=0
+REDIS_HOST=redis
+REDIS_PORT=6379
+REQUEST_DELAY=50ms
+REQUEST_TIMEOUT=10s
+START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
+USER_AGENT=Sneakdex/1.0
+GO_ENV=development
+CGO_ENABLED=0
 ```
 
 ## 🚀 Usage
@@ -225,137 +286,103 @@ export ENABLE_DEBUG=true
 ### Basic Operation
 
 ```bash
-# Start the crawler with default configuration
+# From project root
+go run cmd/crawler/main.go
+
+# Alternative syntax
+go run ./cmd/crawler
+
+# Build from project root
+go build -o crawler cmd/crawler/main.go
+
+# Run
 ./crawler
 
-# Start with custom configuration
-REDIS_HOST=myredis.com KAFKA_BROKERS=mykafka.com:9092 ./crawler
-
-# Run in development mode with debug logging
-LOG_LEVEL=debug ENABLE_DEBUG=true ./crawler
+# Or build with package path
+go build -o crawler ./cmd/crawler
+./crawler
 ```
 
 ### Docker Compose Example
 
+Add this to your `docker-compose.yml` alongside Kafka & other services:
+
 ```yaml
-networks:
-  monitoring:
-    driver: bridge
-  sneakdex-network:
-    driver: bridge
+crawler:
+  build: .
+  init: true
+  env_file:
+    - .env
+  volumes:
+    - .:/app
+    - go-mod-cache:/go/pkg/mod
+  depends_on:
+    kafka:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+    - sneakdex-network
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+  restart: unless-stopped
+```
 
-volumes:
-  kafka-data:
-  redis-data:
-
-services:
-  kafka:
-    image: bitnami/kafka:latest
-    container_name: sneakdex-kafka
-    ports:
-      - "9092:9092"
-      - "9999:9999"
-    environment:
-      - KAFKA_CFG_NODE_ID=1
-      - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
-      - KAFKA_CFG_MESSAGE_MAX_BYTES=10485760
-      - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=10485760
-      # Enable JMX for metrics
-      - KAFKA_ENABLE_KRAFT=yes
-      - KAFKA_CFG_JMX_PORT=9999
-    volumes:
-      - kafka-data:/bitnami/kafka
-    networks:
-      - sneakdex-network
-      - monitoring
-    healthcheck:
-      test:
-        ["CMD-SHELL", "kafka-topics.sh --bootstrap-server 0.0.0.0:9092 --list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-    restart: unless-stopped
-
-  redis:
-    image: redis:7
-    container_name: sneakdex-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - sneakdex-network
-      - monitoring
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
-    restart: unless-stopped
-
-  crawler-dev:
-    build:
-      context: ./services/crawler
-      dockerfile: Dockerfile.dev
-    # For Air live reload, enable init to true
-    init: true
-    environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_TOPIC_HTML=raw-html
-      - KAFKA_RETRY_MAX=3
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=""
-      - REDIS_DB=0
-      - REDIS_TIMEOUT=5s
-      - REDIS_RETRY_MAX=3
-      - START_URLS=https://www.dhruvrishishwar.com,https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com
-      - CRAWL_DEPTH=3
-      - MAX_PAGES=10000
-      - MAX_CONCURRENCY=64
-      - REQUEST_TIMEOUT=10s
-      - REQUEST_DELAY=1ms
-      - MAX_CONTENT_SIZE=2621440 # 2.5 MB
-      - LOG_LEVEL=info
-      - USER_AGENT=Sneakdex/1.0
-      - ENABLE_DEBUG=false
-      - MONITOR_PORT=8080
-    volumes:
-      - ./services/crawler/cmd:/app/cmd
-      - ./services/crawler/internal:/app/internal
-      - ./services/crawler/.air.toml:/app/.air.toml
-      - ./services/crawler/go.mod:/app/go.mod
-      - ./services/crawler/go.sum:/app/go.sum
-    depends_on:
-      kafka:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - sneakdex-network
-      - monitoring
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    restart: unless-stopped
+or for production:
+```yaml
+crawler-prod:
+  build:
+    context: .
+    dockerfile: Dockerfile.prod
+  init: true
+  env_file:
+    - .env.production
+  depends_on:
+    kafka:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+    - sneakdex-network
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+  restart: unless-stopped
+  deploy:
+    resources:
+      limits:
+        cpus: '1.0'
+        memory: 512M
+      reservations:
+        cpus: '0.5'
+        memory: 256M
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - NET_BIND_SERVICE
+  read_only: true
+  tmpfs:
+    - /tmp:noexec,nosuid,size=100m
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  labels:
+    - "com.sneakdex.service=crawler"
+    - "com.sneakdex.environment=production"
 ```
 
 ## 🔗 API Endpoints
-
-The crawler exposes HTTP endpoints for monitoring and health checking:
 
 ### Health Check Endpoint
 
@@ -372,13 +399,23 @@ curl http://localhost:8080/health
 ```bash
 # Healthy service
 HTTP/1.1 200 OK
-Content-Type: text/plain
-ok
+Content-Type: application/json
+{
+  Status:    "healthy",
+  Timestamp: time.Now().UTC(),
+  Services:  make(map[string]string),
+  Errors:    []string{},
+}
 
 # Unhealthy service
 HTTP/1.1 503 Service Unavailable
-Content-Type: text/plain
-Redis unhealthy: connection refused
+Content-Type: application/json
+{
+  Status:    "unhealthy",
+  Timestamp: time.Now().UTC(),
+  Services:  make(map[string]string),
+  Errors:    []string{},
+}
 ```
 
 **Health Check Criteria:**
@@ -419,6 +456,19 @@ crawler_uptime_seconds 3661.23
 
 ## 📊 Monitoring & Observability
 
+### Metrics Exposed
+
+- `pages_processed_total`
+- `pages_successful_total`
+- `pages_failed_total`
+- `kafka_successful_total`
+- `kafka_failed_total`
+- `kafka_errored_total`
+- `redis_successful_total`
+- `redis_failed_total`
+- `redis_errored_total`
+- `crawler_uptime_seconds`
+
 ### Key Performance Indicators (KPIs)
 
 #### Throughput Metrics
@@ -433,7 +483,7 @@ crawler_uptime_seconds 3661.23
 - **Error Rate**: `pages_failed_total / pages_processed_total * 100`
 - **Resource Utilization**: Memory and CPU usage
 
-### Prometheus Queries
+### Sample Prometheus Queries
 
 ```promql
 # Pages per second
@@ -447,99 +497,6 @@ rate(pages_failed_total[5m]) > 0.1
 
 # Redis health
 redis_successful_total / (redis_successful_total + redis_errored_total) < 0.95
-```
-
-### Grafana Dashboard
-
-Key dashboard panels:
-
-1. **Throughput Graph**: Pages processed over time
-2. **Success Rate Gauge**: Current success percentage
-3. **Error Log Table**: Recent errors and warnings
-4. **Resource Usage**: Memory and CPU utilization
-5. **Queue Depth**: Redis queue length trends
-
-### Alerting Rules
-
-```yaml
-groups:
-  - name: crawler.rules
-    rules:
-      - alert: CrawlerHighErrorRate
-        expr: rate(pages_failed_total[5m]) > 0.1
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Crawler error rate is high"
-
-      - alert: CrawlerDown
-        expr: up{job="crawler"} == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Crawler instance is down"
-
-      - alert: RedisConnectionIssues
-        expr: redis_errored_total > 10
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Redis connection issues detected"
-```
-
-### Log Analysis
-
-The crawler outputs structured JSON logs suitable for log aggregation:
-
-```json
-{
-  "level": "info",
-  "time": "2024-01-15T10:30:45Z",
-  "msg": "Page processed successfully",
-  "url": "https://example.com/page1",
-  "content_size": 45231,
-  "duration_ms": 234
-}
-```
-
-**Log Levels:**
-
-- `ERROR`: Critical issues requiring immediate attention
-- `WARN`: Non-critical issues that should be monitored
-- `INFO`: Normal operational events
-- `DEBUG`: Detailed debugging information (development only)
-
-### Code Quality Tools
-
-```bash
-# Format code
-go fmt ./...
-goimports -w .
-
-# Lint code
-golangci-lint run
-```
-
-### Project Structure
-
-```
-├── cmd/crawler/           # Application entry point
-│   └── main.go           # Main application logic
-├── internal/             # Private application code
-│   ├── config/          # Configuration management
-│   ├── crawler/         # Core crawling logic
-│   ├── logger/          # Logging setup
-│   ├── metrics/         # Performance metrics
-│   ├── monitor/         # Health checks and monitoring
-│   └── validator/       # URL validation and filtering
-├── Dockerfile           # Production container image
-├── Dockerfile.dev       # Development container image
-├── .air.toml           # Hot reload configuration
-├── go.mod              # Go module definition
-└── README.md           # This file
 ```
 
 ## 🚀 Deployment
@@ -648,67 +605,6 @@ Debug mode provides:
 - URL validation decision logs
 - Performance timing information
 
-### Log Analysis
-
-Common log patterns to monitor:
-
-```bash
-# Error patterns
-grep "ERROR" /var/log/crawler.log | tail -50
-
-# Performance patterns
-grep "pages_per_second" /var/log/crawler.log
-
-# URL validation failures
-grep "invalid.*URL" /var/log/crawler.log
-```
-
-## ⚡ Performance Tuning
-
-### Crawler Optimization
-
-#### Concurrency Settings
-
-```bash
-# Conservative (respectful crawling)
-MAX_CONCURRENCY=8
-REQUEST_DELAY=500ms
-
-# Moderate (balanced performance)
-MAX_CONCURRENCY=32
-REQUEST_DELAY=100ms
-
-# Aggressive (maximum performance)
-MAX_CONCURRENCY=64
-REQUEST_DELAY=50ms
-```
-
-#### Memory Optimization
-
-```bash
-# Reduce memory usage
-MAX_CONTENT_SIZE=1048576    # 1MB limit
-CRAWL_DEPTH=2               # Shallow crawling
-
-# Cache optimization
-REDIS_TIMEOUT=5s            # Faster Redis timeouts
-```
-
-### Monitoring-Based Tuning
-
-Use metrics to guide optimization:
-
-```bash
-# Monitor queue depth
-redis-cli llen crawler:pending_urls
-
-# Monitor success rates
-curl -s http://localhost:8080/metrics | grep success
-
-# Monitor resource usage
-docker stats crawler-container
-```
-
 ## 🔒 Security
 
 ### Network Security
@@ -758,20 +654,8 @@ USER appuser
 
 # Minimal base image
 FROM alpine:3.19
-
-# No sensitive data in layers
-RUN --mount=type=secret,id=password ...
 ```
 
-#### Runtime Security
+## 📜 License
 
-```bash
-# Read-only filesystem
-docker run --read-only --tmpfs /tmp sneakdex-crawler
-
-# Security context (Kubernetes)
-securityContext:
-  runAsNonRoot: true
-  runAsUser: 1000
-  readOnlyRootFilesystem: true
-```
+MIT — feel free to use & contribute.
