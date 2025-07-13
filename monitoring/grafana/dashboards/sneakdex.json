@@ -55,7 +55,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 0
       }
@@ -174,28 +174,20 @@
       "type": "graph",
       "targets": [
         {
-          "expr": "pages_processed",
-          "legendFormat": "{{instance_id}} - Pages Processed"
+          "expr": "indexer_messages_consumed_total",
+          "legendFormat": "{{instance_id}} - Messages Consumed"
         },
         {
-          "expr": "pages_successful",
-          "legendFormat": "{{instance_id}} - Successful"
+          "expr": "indexer_batches_indexed_total",
+          "legendFormat": "{{instance_id}} - Batches Indexed"
         },
         {
-          "expr": "pages_failed",
-          "legendFormat": "{{instance_id}} - Failed"
+          "expr": "indexer_messages_failed_total",
+          "legendFormat": "{{instance_id}} - Messages Failed"
         },
         {
-          "expr": "kafka_successful",
-          "legendFormat": "{{instance_id}} - Kafka OK"
-        },
-        {
-          "expr": "kafka_failed",
-          "legendFormat": "{{instance_id}} - Kafka Failed"
-        },
-        {
-          "expr": "kafka_errored",
-          "legendFormat": "{{instance_id}} - Kafka Error"
+          "expr": "indexer_current_vectors",
+          "legendFormat": "{{instance_id}} - Current Vectors"
         }
       ],
       "yAxes": [

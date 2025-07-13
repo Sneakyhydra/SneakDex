@@ -138,7 +138,6 @@ services:
   indexer:
     build:
       context: ./services/indexer
-    container_name: sneakdex-indexer
     environment:
       - BATCH_SIZE=50
       - INDEX_SAVE_INTERVAL=5000

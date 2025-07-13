@@ -63,10 +63,22 @@ scrape_configs:
     scrape_timeout: 10s
 
   # Scrape Indexer-prod
-  - job_name: "sneakdex-indexer-prod"
+  - job_name: "indexer-prod"
     static_configs:
-      - targets: ["sneakdex-indexer-prod:8080"]
+      - targets:
+          - "sneakdex-indexer-prod-1:8080"
         labels:
+          instance_id: "indexer-prod-1"
+          service: "indexer-prod"
+      - targets:
+          - "sneakdex-indexer-prod-2:8080"
+        labels:
+          instance_id: "indexer-prod-2"
+          service: "indexer-prod"
+      - targets:
+          - "sneakdex-indexer-prod-3:8080"
+        labels:
+          instance_id: "indexer-prod-3"
           service: "indexer-prod"
     metrics_path: "/metrics"
     scrape_interval: 15s

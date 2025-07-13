@@ -139,7 +139,6 @@ services:
     build:
       context: ./services/indexer
       dockerfile: Dockerfile.prod
-    container_name: sneakdex-indexer-prod
     environment:
       - BATCH_SIZE=100
       - INDEX_SAVE_INTERVAL=10000
