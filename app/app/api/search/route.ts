@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const query: string = body.query?.trim();
-    const top_k: number = body.top_k ?? 10;
+    const top_k: number = body.top_k ?? 100;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query" }, { status: 400 });
@@ -50,40 +50,30 @@ export async function POST(req: Request) {
         with_payload: true,
       });
 
-      return hits.map((hit, idx) => ({
+      return hits.map((hit) => ({
         id: String(hit.id),
         qdrantScore: hit.score ?? 0,
         pgScore: 0,
         payload: hit.payload,
-        rank_qdrant: idx + 1,
       }));
     })();
 
     // === SUPABASE SEARCH ===
     const pgPromise = (async () => {
       const { data, error } = await supabase
-        .from("documents")
-        .select("id, title, url, ts_rank(content_tsv, plainto_tsquery($$query$$)) AS score", {
-          count: "exact",
-        })
-        .textSearch("content_tsv", query, {
-          type: "plain",
-          config: "english",
-        })
-        .order("score", { ascending: false })
-        .limit(top_k);
+  .rpc("search_documents", { q: query, limit_count: top_k });
+
 
       if (error) {
         console.error("Supabase error:", error);
         return [];
       }
 
-      return data.map((row: any, idx: number) => ({
+      return data.map((row: any) => ({
         id: String(row.id),
         pgScore: row.score ?? 0,
-        qdrantScore: 0,
-        payload: row,
-        rank_pg: idx + 1,
+        url: row.url,
+        title: row.title,
       }));
     })();
 
@@ -92,20 +82,35 @@ export async function POST(req: Request) {
     // === MERGE RESULTS ===
     const merged = new Map<string, any>();
 
+    // Start with Qdrant
     for (const r of qdrantResults) {
-      merged.set(r.id, { ...r });
+      merged.set(r.id, {
+        id: r.id,
+        qdrantScore: r.qdrantScore,
+        pgScore: 0,
+        payload: r.payload,
+      });
     }
 
+    // Add Supabase info
     for (const r of pgResults) {
       if (merged.has(r.id)) {
         const m = merged.get(r.id);
         merged.set(r.id, {
           ...m,
           pgScore: r.pgScore,
-          rank_pg: r.rank_pg,
         });
       } else {
-        merged.set(r.id, { ...r });
+        // no Qdrant — but at least we have URL & title
+        merged.set(r.id, {
+          id: r.id,
+          qdrantScore: 0,
+          pgScore: r.pgScore,
+          payload: {
+            url: r.url,
+            title: r.title,
+          },
+        });
       }
     }
 
