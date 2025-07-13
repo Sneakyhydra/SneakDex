@@ -7,18 +7,14 @@ RUN apt-get update && \
     libgomp1 curl gcc build-essential && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
-RUN pip install --no-cache-dir --user watchfiles
-
 ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONPATH=/root/.local/lib/python3.12/site-packages:/app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHON_ENV=development
 
-# RUN python -c "import nltk; nltk.download('punkt'); nltk.download('punkt_tab'); nltk.download('stopwords')"
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir --user watchfiles
 
-VOLUME ["/app"]
-
-CMD ["watchfiles", "python -m main", "/app"]
+CMD ["watchfiles", "python -m src.main", "/app"]

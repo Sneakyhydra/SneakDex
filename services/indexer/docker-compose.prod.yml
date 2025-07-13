@@ -77,14 +77,16 @@ services:
 
   crawler-prod:
     build:
-      context: .
+      context: ../crawler
       dockerfile: Dockerfile.prod
     env_file:
-      - .env.production
+      - ../crawler/.env.production
     depends_on:
       kafka:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      parser-prod:
         condition: service_healthy
     networks:
       - sneakdex-network
@@ -119,4 +121,97 @@ services:
         max-file: "3"
     labels:
       - "com.sneakdex.service=crawler"
+      - "com.sneakdex.environment=production"
+
+  parser-prod:
+    build:
+      context: ../parser
+      dockerfile: Dockerfile.prod
+    env_file:
+      - ../parser/.env.production
+    depends_on:
+      kafka:
+        condition: service_healthy
+      indexer-prod:
+        condition: service_healthy
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.sneakdex.service=parser"
+      - "com.sneakdex.environment=production"
+
+  indexer-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHON_ENV=production
+    env_file:
+      - .env.production
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.sneakdex.service=indexer"
       - "com.sneakdex.environment=production"

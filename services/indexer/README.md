@@ -1,6 +1,6 @@
 # SneakDex Indexer Service
 
-A high-performance, distributed web crawler service designed for enterprise-scale content discovery and processing. Built with Go for optimal performance and resource efficiency.
+A scalable, distributed document and image indexing service designed for enterprise-scale search and discovery. Built with Python and powered by Sentence Transformers, Qdrant, and Supabase for high-quality semantic indexing and sparse indexing.
 
 ## 📋 Table of Contents
 
@@ -21,11 +21,11 @@ A high-performance, distributed web crawler service designed for enterprise-scal
     - [Network Requirements](#network-requirements)
   - [⚙️ Configuration](#️-configuration)
     - [Environment Variables](#environment-variables)
-      - [Redis Configuration](#redis-configuration)
       - [Kafka Configuration](#kafka-configuration)
-      - [Crawling Behavior](#crawling-behavior)
-      - [Performance Settings](#performance-settings)
+      - [Qdrant Configuration](#qdrant-configuration)
+      - [Supabase/Postgres Configuration](#supabasepostgres-configuration)
       - [Application Settings](#application-settings)
+      - [Database Settings](#database-settings)
     - [Configuration Examples](#configuration-examples)
       - [Production Environment](#production-environment)
       - [Development Environment](#development-environment)
@@ -47,188 +47,208 @@ A high-performance, distributed web crawler service designed for enterprise-scal
       - [Vertical Scaling](#vertical-scaling)
   - [🐛 Troubleshooting](#-troubleshooting)
     - [Common Issues](#common-issues)
-      - [1. Redis Connection Failures](#1-redis-connection-failures)
-      - [2. Kafka Publishing Errors](#2-kafka-publishing-errors)
-      - [3. High Memory Usage](#3-high-memory-usage)
-      - [4. Slow Crawling Performance](#4-slow-crawling-performance)
-    - [Debug Mode](#debug-mode)
+      - [1. Qdrant Connection Failures](#1-qdrant-connection-failures)
+      - [2. Supabase Insert Errors](#2-supabase-insert-errors)
+      - [3. Kafka Consumption Stalls](#3-kafka-consumption-stalls)
+      - [4. High Memory/CPU Usage](#4-high-memorycpu-usage)
   - [🔒 Security](#-security)
     - [Network Security](#network-security)
       - [Firewall Rules](#firewall-rules)
-    - [URL Validation Security](#url-validation-security)
-      - [IP Address Filtering](#ip-address-filtering)
-      - [Domain Filtering](#domain-filtering)
-      - [Content Size Limits](#content-size-limits)
+    - [Data Validation \& Sanitization](#data-validation--sanitization)
+      - [Payload Validation](#payload-validation)
+      - [Qdrant \& Supabase Authentication](#qdrant--supabase-authentication)
+      - [Batch Size Limits](#batch-size-limits)
     - [Container Security](#container-security)
       - [Dockerfile Security Best Practices](#dockerfile-security-best-practices)
   - [📜 License](#-license)
 
 ## 🔍 Overview
 
-The SneakDex Web Crawler is a production-ready, distributed web crawling service that efficiently discovers, delivers web content for downstream analysis. It's designed to handle high-throughput crawling operations while maintaining respectful crawling practices and robust error handling.
+SneakDex Indexer consumes parsed web pages and images from Kafka, generates semantic embeddings, and indexes them into Qdrant (vector search) and Supabase (Postgres) for efficient retrieval and search.
 
 ### Key Capabilities
 
-- **Distributed Crawling**: Uses Redis for URL queue management across multiple instances
-- **High Performance**: Concurrent crawling with configurable parallelism
-- **Content Processing**: Kafka integration for real-time content delivery
-- **URL Validation**: Comprehensive URL filtering and normalization
-- **Monitoring**: Built-in health checks and Prometheus metrics
-- **Graceful Handling**: Respectful crawling with rate limiting and robots.txt compliance
+- **Semantic Indexing**: Generates dense vector embeddings for documents and images using Sentence Transformers.
+- **Batch Processing**: Processes and indexes documents in configurable batches for high throughput.
+- **Content Storage**: Simultaneously stores metadata & text in Supabase (Sparse indexing) and embeddings in Qdrant.
+- **Monitoring**: Built-in health checks and Prometheus-compatible metrics.
+- **Graceful Handling**: Signal-aware shutdown and error-tolerant consumer loop.
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐
-│   Crawler 1     │    │   Crawler N     │
-│   Instance      │    │   Instance      │
-└─────────────────┘    └─────────────────┘
-         │                        │
-         │        Redis           │
-  ┌──────┴────────────────────────┴──────┐
-  │    Distributed URL Queue             │
-  │    - pending_urls (List)             │
-  │    - visited_urls (Set)              │
-  │    - requeued_urls (Set)             │
-  └─────────────────┬────────────────────┘
-                    │
-  ┌─────────────────┴─────────────────────┐
-  │           Kafka Cluster               │
-  │    Topic: raw-html                    │
-  │    (Crawled Content)                  │
-  └───────────────────────────────────────┘
-                    │
-  ┌─────────────────┴─────────────────────┐
-  │       Downstream Processors           │
-  │    (Parser, Indexer, etc.)            │
-  └───────────────────────────────────────┘
-
+┌──────────────────────────┐
+│        Kafka Topic       │
+│       parsed-pages       │
+│   (Parsed HTML & Images) │
+└──────────────┬───────────┘
+               │
+    ┌──────────┴──────────┐
+    │     Indexer Service │
+    │  (Orchestrator.py)  │
+    └──────────┬──────────┘
+               │
+   ┌───────────┼────────────┬────────────┐
+   │           │            │            │
+┌──┴──┐    ┌───┴───┐   ┌────┴────┐  ┌────┴────┐
+│Embed│    │Qdrant │   │Supabase │  │Monitor  │
+│Model│    │Client │   │Client   │  │Server   │
+└─────┘    └───────┘   └─────────┘  └─────────┘
 
 Optional Enterprise Configuration:
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Load Balancer │    │   Crawler 1     │    │   Crawler N     │
-│  (Enterprise)   │────│   Instance      │    │   Instance      │
+│ Kafka Load Bal. │────│ Indexer 1       │────│ Indexer N       │
+│ (Enterprise)    │    │ Instance        │    │ Instance        │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
-     (Only for centralized health checks and metrics aggregation)
+     (With horizontal scaling & centralized metrics)
+
 ```
 
 ### Components
 
-- **Crawler Engine**: Colly-based high-performance web scraper
-- **URL Manager**: Redis-backed distributed queue with deduplication
-- **Content Publisher**: Kafka producer for real-time content streaming
-- **URL Validator**: Security and quality filtering with caching
-- **Monitor Server**: Health checks and metrics exposition
-- **Configuration Manager**: Environment-based configuration with validation
+- **Kafka Consumer**: Reads parsed pages & images from Kafka (parsed-pages topic).
+- **Embedding Model**: Sentence Transformers-based semantic vector generator.
+- **Vector Store Client**: Indexes vectors & metadata into Qdrant collections.
+- **Relational Store Client**: Inserts structured metadata & text into Supabase/Postgres for sparse indexing using tsvector.
+- **Monitor Server**: Health & metrics endpoints (/health, /metrics).
+- **Configuration Manager**: Pydantic-based environment configuration loader & validator.
 
 ## ✨ Features
 
 ### Core Functionality
 
-- ✅ **Distributed Crawling** - Multiple instances coordinate via Redis
-- ✅ **High Concurrency** - Configurable parallel request handling
-- ✅ **URL Deduplication** - Intelligent caching prevents duplicate work
-- ✅ **Content Filtering** - Skip non-HTML content automatically
-- ✅ **Rate Limiting** - Respectful crawling with configurable delays
-- ✅ **Depth Control** - Configurable crawling depth limits
+- ✅ **Semantic Indexing** - Embeds documents & images into vector space using Transformers
+- ✅ **Batch Processing** - Processes documents in configurable batches for efficiency
+- ✅ **Multi-Store Indexing** - Stores vectors in Qdrant and metadata in Supabase
+- ✅ **Image & Text Support** - Captions & embeds both page text and associated images
+- ✅ **Language Detection Ready** - Stores language metadata alongside content
+- ✅ **Text Snippets** - Saves short text snippets for previews & search display
 
 ### Reliability & Performance
 
-- ✅ **Auto Retry** - Exponential backoff for transient failures
-- ✅ **Graceful Shutdown** - Clean resource cleanup on termination
-- ✅ **Circuit Breaking** - Automatic error handling and recovery
-- ✅ **Memory Optimization** - Multi-level caching reduces resource usage
-- ✅ **Connection Pooling** - Efficient resource utilization
+- ✅ **Batch Size Control** - Adjustable batch size & max document limits for tuning
+- ✅ **Fault Tolerant** - Skips bad messages, logs failures, continues processing
+- ✅ **Concurrent Encoding** - Offloads embedding computation efficiently
+- ✅ **Optimized Storage Writes** - Uses Qdrant & Supabase clients efficiently for low latency
 
 ### Monitoring & Operations
 
-- ✅ **Health Checks** - HTTP endpoints for direct instance monitoring
-- ✅ **Prometheus Metrics** - Comprehensive performance monitoring
-- ✅ **Structured Logging** - JSON logs for easy parsing and analysis
-- ✅ **Real-time Stats** - Live performance metrics and dashboards
-- ✅ **Alerting Ready** - Metrics compatible with monitoring stacks
+- ✅ **Health Checks** - /health endpoint checks Qdrant, Supabase, and Kafka config
+- ✅ **Prometheus Metrics** - Exposes processing metrics
+- ✅ **Structured Logging** - Rich logs with context for debugging & observability
+- ✅ **Vector Count Gauge** - Tracks Qdrant collection size in real time
+- ✅ **Alerting Ready** - Metrics compatible with Prometheus & Grafana dashboards
 
 ### Security & Compliance
 
-- ✅ **URL Validation** - Prevent access to private/malicious IPs
-- ✅ **Content Size Limits** - Prevent memory exhaustion attacks
-- ✅ **Domain Filtering** - Whitelist/blacklist support
-- ✅ **User Agent** - Proper identification for transparency
-- ✅ **Timeout Protection** - Prevent resource exhaustion
+- ✅ **Environment-based Secrets** - No hardcoded credentials, fully configurable
+- ✅ **Payload Sanitization** - Cleans and validates input data before indexing
+- ✅ **Content Size Limits** - Truncates excessively large fields to protect storage & memory
+- ✅ **Signal-safe** - Properly closes Kafka consumers & releases resources
+- ✅ **Container Friendly** - Runs well in Docker/Kubernetes environments
 
 ## 🔧 Prerequisites
 
 ### System Requirements
 
-- **Go**: = 1.24
-- **Redis**: = 7.0 (for URL queue management)
+- **Python**: = 3.12
 - **Kafka**: = 4.0.0 (for content publishing)
+- **Qdrant**: = 1.0.0 (for vector storage)
+- **Supabase**: = 2.0.0 (for metadata storage)
 
 ### Infrastructure Dependencies
 
-- **Redis Cluster**: High-availability Redis setup recommended
-- **Kafka Cluster**: Multi-broker setup for production workloads
-- **Monitoring Stack**: Prometheus + Grafana for observability
-- **Load Balancer**: _(Optional)_ Only needed for enterprise scenarios requiring centralized health check endpoints
+- **Kafka Cluster**: Multi-broker setup for reliability & throughput
+
+- **Qdrant Cluster**: Recommended for production-scale vector storage
+
+- **Supabase/Postgres**: Managed Postgres or Supabase project
+
+- **Monitoring Stack**: Prometheus + Grafana for metrics & dashboards
+
+- **Load Balancer**: _(Optional)_ For horizontally scaled deployments with centralized monitoring
 
 ### Network Requirements
 
-- **Outbound HTTP/HTTPS**: Access to target websites
-- **Redis Access**: Port 6379 (configurable)
-- **Kafka Access**: Port 9092 (configurable)
+- **Kafka Access**: Port 9092 (or as configured)
+- **Qdrant Access**: Port 6333 (or as configured)
+- **Supabase/Postgres Access**: HTTPS endpoint (provided by Supabase)
 - **Health Check Port**: Port 8080 (configurable)
 
 ## ⚙️ Configuration
 
 ### Environment Variables
 
-The crawler is configured entirely through environment variables for container-friendly deployment:
-
-#### Redis Configuration
-
-```bash
-REDIS_HOST=redis                      # Redis server hostname
-REDIS_PORT=6379                       # Redis server port
-REDIS_PASSWORD=                       # Redis password (optional)
-REDIS_DB=0                            # Redis database number
-REDIS_TIMEOUT=15s                     # Redis operation timeout
-REDIS_RETRY_MAX=3                     # Maximum Redis retry attempts
-```
+The indexer is configured entirely through environment variables for container-friendly deployment:
 
 #### Kafka Configuration
 
 ```bash
 KAFKA_BROKERS=kafka:9092                # Comma-separated Kafka brokers
-KAFKA_TOPIC_HTML=raw-html               # Topic for crawled HTML content
-KAFKA_RETRY_MAX=3                       # Maximum Kafka retry attempts
+KAFKA_TOPIC_PARSED=parsed-pages         # Topic for parsed page & image content
+KAFKA_GROUP_ID=indexer-group            # Kafka consumer group ID
 ```
 
-#### Crawling Behavior
+#### Qdrant Configuration
 
 ```bash
-START_URLS=https://example.com,https://example.org  # Initial crawling seeds
-CRAWL_DEPTH=3                                       # Maximum crawling depth
-MAX_PAGES=10000                                     # Maximum pages per session
-URL_WHITELIST=example.com,trusted.org               # Allowed domains (optional)
-URL_BLACKLIST=spam.com,malicious.org                # Blocked domains (optional)
+QDRANT_URL=http://qdrant:6333           # Qdrant service endpoint
+QDRANT_API_KEY=                         # Qdrant API key (if required)
+COLLECTION_NAME=sneakdex               # Qdrant collection for page embeddings
+COLLECTION_NAME_IMAGES=sneakdex-images # Qdrant collection for image embeddings
+
 ```
 
-#### Performance Settings
+#### Supabase/Postgres Configuration
 
 ```bash
-MAX_CONCURRENCY=32                    # Concurrent request limit
-REQUEST_TIMEOUT=15s                   # HTTP request timeout
-REQUEST_DELAY=100ms                   # Delay between requests
-MAX_CONTENT_SIZE=2621440              # Maximum content size (2.5MB)
+SUPABASE_URL=https://your-project.supabase.co  # Supabase project URL
+SUPABASE_API_KEY=                              # Supabase service key
+
 ```
 
 #### Application Settings
 
 ```bash
-LOG_LEVEL=info                        # Logging level (trace,debug,info,warn,error)
-USER_AGENT=SneakDex/1.0               # HTTP User-Agent string
-ENABLE_DEBUG=false                    # Enable debug features
-MONITOR_PORT=8080                     # Health check and metrics port
+BATCH_SIZE=100
+MAX_DOCS=10000
+MONITOR_PORT=8080
+```
+
+#### Database Settings
+
+```sql
+DROP TABLE IF EXISTS documents;
+
+CREATE TABLE documents (
+    id UUID PRIMARY KEY,
+    url TEXT,
+    title TEXT,
+    lang TEXT DEFAULT 'simple',
+    content_tsv TSVECTOR
+);
+
+CREATE INDEX idx_documents_content_tsv ON documents USING GIN (content_tsv);
+
+-- temp column just for insert-time text
+ALTER TABLE documents ADD COLUMN _tmp_content TEXT;
+
+-- trigger function
+CREATE OR REPLACE FUNCTION update_content_tsv_and_strip()
+RETURNS trigger AS $$
+BEGIN
+    NEW.content_tsv := to_tsvector(COALESCE(NEW.lang, 'simple')::regconfig, NEW._tmp_content);
+    NEW._tmp_content := NULL; -- discard cleaned_text
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- attach trigger
+CREATE TRIGGER trg_update_content_tsv
+BEFORE INSERT ON documents
+FOR EACH ROW
+EXECUTE FUNCTION update_content_tsv_and_strip();
+
 ```
 
 ### Configuration Examples
@@ -236,49 +256,35 @@ MONITOR_PORT=8080                     # Health check and metrics port
 #### Production Environment
 
 ```env
-CRAWL_DEPTH=3
-ENABLE_DEBUG=false
 KAFKA_BROKERS=kafka:9092
-KAFKA_RETRY_MAX=3
-KAFKA_TOPIC_HTML=raw-html
-LOG_LEVEL=info
-MAX_CONCURRENCY=64
-MAX_CONTENT_SIZE=10485760
-MAX_PAGES=10000
+KAFKA_TOPIC_PARSED=parsed-pages
+KAFKA_GROUP_ID=indexer-group
+BATCH_SIZE=1000
+MAX_DOCS=100000
+QDRANT_URL=http://qdrant:6333
+QDRANT_API_KEY=some-qdrant-api-key
+COLLECTION_NAME=sneakdex
+COLLECTION_NAME_IMAGES=sneakdex-images
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_API_KEY=some-supabase-api-key
 MONITOR_PORT=8080
-REDIS_DB=0
-REDIS_HOST=redis
-REDIS_PORT=6379
-REQUEST_DELAY=10ms
-REQUEST_TIMEOUT=10s
-START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
-USER_AGENT=SneakDex/1.0
-GO_ENV=production
-CGO_ENABLED=0
 ```
 
 #### Development Environment
 
 ```env
-CRAWL_DEPTH=3
-ENABLE_DEBUG=false
 KAFKA_BROKERS=kafka:9092
-KAFKA_RETRY_MAX=3
-KAFKA_TOPIC_HTML=raw-html
-LOG_LEVEL=info
-MAX_CONCURRENCY=16
-MAX_CONTENT_SIZE=10485760
-MAX_PAGES=10000
+KAFKA_TOPIC_PARSED=parsed-pages
+KAFKA_GROUP_ID=indexer-group
+BATCH_SIZE=100
+MAX_DOCS=1000
+QDRANT_URL=http://qdrant:6333
+QDRANT_API_KEY=some-qdrant-api-key
+COLLECTION_NAME=sneakdex
+COLLECTION_NAME_IMAGES=sneakdex-images
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_API_KEY=some-supabase-api-key
 MONITOR_PORT=8080
-REDIS_DB=0
-REDIS_HOST=redis
-REDIS_PORT=6379
-REQUEST_DELAY=50ms
-REQUEST_TIMEOUT=10s
-START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
-USER_AGENT=SneakDex/1.0
-GO_ENV=development
-CGO_ENABLED=0
 ```
 
 ## 🚀 Usage
@@ -287,20 +293,16 @@ CGO_ENABLED=0
 
 ```bash
 # From project root
-go run cmd/crawler/main.go
+python -m src.main
 
-# Alternative syntax
-go run ./cmd/crawler
+# Or explicitly run main.py
+python src/main.py
 
-# Build from project root
-go build -o crawler cmd/crawler/main.go
+# With environment variables loaded from .env
+export $(cat .env | xargs) && python -m src.main
 
-# Run
-./crawler
-
-# Or build with package path
-go build -o crawler ./cmd/crawler
-./crawler
+# Example with custom config
+BATCH_SIZE=500 MAX_DOCS=10000 python -m src.main
 ```
 
 ### Docker Compose Example
@@ -308,25 +310,26 @@ go build -o crawler ./cmd/crawler
 Add this to your `docker-compose.yml` alongside Kafka & other services:
 
 ```yaml
-crawler:
+indexer:
   build: .
-  init: true
+  environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONDONTWRITEBYTECODE=1
+    - PYTHON_ENV=development
   env_file:
     - .env
   volumes:
     - .:/app
-    - go-mod-cache:/go/pkg/mod
+  working_dir: /app
   depends_on:
     kafka:
-      condition: service_healthy
-    redis:
       condition: service_healthy
   networks:
     - sneakdex-network
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-    interval: 10s
-    timeout: 5s
+    interval: 30s
+    timeout: 10s
     retries: 3
     start_period: 30s
   restart: unless-stopped
@@ -334,22 +337,24 @@ crawler:
 
 or for production:
 ```yaml
-crawler-prod:
+indexer-prod:
   build:
     context: .
     dockerfile: Dockerfile.prod
+  environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONDONTWRITEBYTECODE=1
+    - PYTHON_ENV=production
   env_file:
     - .env.production
   depends_on:
     kafka:
       condition: service_healthy
-    redis:
-      condition: service_healthy
   networks:
     - sneakdex-network
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-    interval: 10s
+    interval: 30s
     timeout: 5s
     retries: 3
     start_period: 30s
@@ -357,18 +362,17 @@ crawler-prod:
   deploy:
     resources:
       limits:
+        cpus: '2.0'
+        memory: 1G
+      reservations:
         cpus: '1.0'
         memory: 512M
-      reservations:
-        cpus: '0.5'
-        memory: 256M
   security_opt:
     - no-new-privileges:true
   cap_drop:
     - ALL
   cap_add:
     - NET_BIND_SERVICE
-  read_only: true
   tmpfs:
     - /tmp:noexec,nosuid,size=100m
   logging:
@@ -377,7 +381,7 @@ crawler-prod:
       max-size: "10m"
       max-file: "3"
   labels:
-    - "com.sneakdex.service=crawler"
+    - "com.sneakdex.service=indexer"
     - "com.sneakdex.environment=production"
 ```
 
@@ -387,7 +391,7 @@ crawler-prod:
 
 **GET /health**
 
-Returns the health status of the crawler service.
+Returns the health status of the indexer service.
 
 ```bash
 curl http://localhost:8080/health
@@ -395,33 +399,39 @@ curl http://localhost:8080/health
 
 **Responses:**
 
-```bash
+```json
 # Healthy service
 HTTP/1.1 200 OK
 Content-Type: application/json
 {
-  Status:    "healthy",
-  Timestamp: time.Now().UTC(),
-  Services:  make(map[string]string),
-  Errors:    []string{},
+  "status": "ok",
+  "components": {
+    "qdrant": "ok",
+    "supabase": "ok",
+    "kafka": "configured"
+  },
+  "current_vectors": 5234
 }
 
-# Unhealthy service
-HTTP/1.1 503 Service Unavailable
+# Degraded service
+HTTP/1.1 200 OK
 Content-Type: application/json
 {
-  Status:    "unhealthy",
-  Timestamp: time.Now().UTC(),
-  Services:  make(map[string]string),
-  Errors:    []string{},
+  "status": "degraded",
+  "components": {
+    "qdrant": "error: connection timeout",
+    "supabase": "ok",
+    "kafka": "configured"
+  },
+  "current_vectors": null
 }
 ```
 
 **Health Check Criteria:**
 
-- ✅ Redis connectivity and responsiveness
-- ✅ Kafka producer availability
-- ✅ System resource availability
+- ✅ Qdrant connectivity and collection stats
+- ✅ Supabase query execution
+- ✅ Kafka configuration detected
 
 ### Metrics Endpoint
 
@@ -436,66 +446,62 @@ curl http://localhost:8080/metrics
 **Sample Output:**
 
 ```
-# HELP pages_processed_total Total number of pages processed
-# TYPE pages_processed_total gauge
-pages_processed_total 1523
+# HELP indexer_messages_consumed_total Total number of messages consumed
+# TYPE indexer_messages_consumed_total counter
+indexer_messages_consumed_total 3021
 
-# HELP pages_successful_total Total number of pages successfully processed
-# TYPE pages_successful_total gauge
-pages_successful_total 1445
+# HELP indexer_batches_indexed_total Total number of batches successfully indexed
+# TYPE indexer_batches_indexed_total counter
+indexer_batches_indexed_total 121
 
-# HELP kafka_successful_total Successful Kafka messages sent
-# TYPE kafka_successful_total gauge
-kafka_successful_total 1445
+# HELP indexer_messages_failed_total Total number of messages that failed to process
+# TYPE indexer_messages_failed_total counter
+indexer_messages_failed_total 7
 
-# HELP crawler_uptime_seconds Crawler uptime in seconds
-# TYPE crawler_uptime_seconds gauge
-crawler_uptime_seconds 3661.23
+# HELP indexer_current_vectors Current number of vectors in Qdrant collection
+# TYPE indexer_current_vectors gauge
+indexer_current_vectors 5234
+
 ```
 
 ## 📊 Monitoring & Observability
 
 ### Metrics Exposed
 
-- `pages_processed_total`
-- `pages_successful_total`
-- `pages_failed_total`
-- `kafka_successful_total`
-- `kafka_failed_total`
-- `kafka_errored_total`
-- `redis_successful_total`
-- `redis_failed_total`
-- `redis_errored_total`
-- `crawler_uptime_seconds`
+- `indexer_messages_consumed_total`
+- `indexer_batches_indexed_total`
+- `indexer_messages_failed_total`
+- `indexer_current_vectors`
 
 ### Key Performance Indicators (KPIs)
 
 #### Throughput Metrics
 
-- **Pages/Second**: `pages_processed_total / crawler_uptime_seconds`
-- **Success Rate**: `pages_successful_total / pages_processed_total * 100`
-- **Kafka Delivery Rate**: `kafka_successful_total / pages_successful_total * 100`
+- **Messages/Second**: `indexer_messages_consumed_total / process_uptime_seconds`
+- **Batch Success Rate**: `indexer_batches_indexed_total / (indexer_batches_indexed_total + indexer_messages_failed_total) * 100`
+- **Qdrant Vector Count**: `indexer_current_vectors`
 
 #### Health Metrics
 
-- **Redis Connectivity**: `redis_successful_total / (redis_successful_total + redis_errored_total)`
-- **Error Rate**: `pages_failed_total / pages_processed_total * 100`
-- **Resource Utilization**: Memory and CPU usage
+- **Qdrant Connectivity**: monitored via `/health` and `indexer_current_vectors`
+- **Supabase Insert Success**: inferred from logs and low `indexer_messages_failed_total`
+- **Error Rate**: `indexer_messages_failed_total / indexer_messages_consumed_total * 100`
+- **Resource Utilization**: Memory and CPU usage (external monitoring recommended)
 
 ### Sample Prometheus Queries
 
 ```promql
-# Pages per second
-rate(pages_processed_total[5m])
+# Messages consumed per second
+rate(indexer_messages_consumed_total[5m])
 
-# Success rate percentage
-pages_successful_total / pages_processed_total * 100
+# Batch success rate percentage
+indexer_batches_indexed_total / (indexer_batches_indexed_total + indexer_messages_failed_total) * 100
 
 # Error rate alert
-rate(pages_failed_total[5m]) > 0.1
+rate(indexer_messages_failed_total[5m]) > 0.1
 
-# Redis health
-redis_successful_total / (redis_successful_total + redis_errored_total) < 0.95
+# Current vector count in Qdrant
+indexer_current_vectors
 ```
 
 ## 🚀 Deployment
@@ -506,103 +512,85 @@ redis_successful_total / (redis_successful_total + redis_errored_total) < 0.95
 
 - **CPU Usage**: Scale up when CPU > 70% for 5+ minutes
 - **Memory Usage**: Scale up when memory > 80%
-- **Queue Depth**: Scale up when Redis queue length > 10,000
-- **Error Rate**: Scale up when error rate > 5%
+- **Kafka Lag**: Scale out when Kafka consumer lag increases and stays > 10,000 messages
+- **Error Rate**: Scale out when indexer_messages_failed_total / indexer_messages_consumed_total > 5%
 
 #### Vertical Scaling
 
-- **Memory**: Increase for high URL deduplication cache hit rates
-- **CPU**: Increase for high workloads
-- **Network**: Ensure adequate bandwidth for high-throughput scenarios
+- **Memory**: Increase for handling large batches & embedding large documents/images
+- **CPU**: Increase to speed up embedding computation (especially with CPU-bound SentenceTransformers)
+- **Disk I/O & Network**: Ensure low latency access to Qdrant & Supabase in high-throughput scenarios
+- **Add GPU**: For GPU-based embedding models, ensure sufficient GPU resources are available (Change requirements.txt accordingly)
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
-#### 1. Redis Connection Failures
+#### 1. Qdrant Connection Failures
 
 ```bash
 # Symptoms
-ERROR: Failed to connect to Redis after 3 attempts
+ERROR: Qdrant health check failed
 
 # Diagnosis
-redis-cli -h $REDIS_HOST -p $REDIS_PORT ping
-telnet $REDIS_HOST $REDIS_PORT
+curl -X GET http://<QDRANT_URL>/collections
+ping <QDRANT_HOST>
 
 # Solutions
-- Verify Redis is running and accessible
+- Verify Qdrant is running and accessible
+- Check Qdrant API key and URL configuration
 - Check network connectivity and firewall rules
-- Verify Redis authentication credentials
-- Increase REDIS_TIMEOUT if network is slow
 ```
 
-#### 2. Kafka Publishing Errors
+#### 2. Supabase Insert Errors
 
 ```bash
 # Symptoms
-ERROR: Failed to send message to Kafka: connection refused
+ERROR: Supabase insert failed. Response: …
 
 # Diagnosis
-kafka-topics.sh --list --bootstrap-server $KAFKA_BROKERS
-kafka-console-producer.sh --topic $KAFKA_TOPIC_HTML --bootstrap-server $KAFKA_BROKERS
+Check Supabase logs or query directly via SQL:
+SELECT * FROM documents LIMIT 1;
 
 # Solutions
-- Verify Kafka cluster is running
-- Check topic exists and has proper permissions
-- Verify network connectivity to Kafka brokers
-- Check Kafka broker configuration
+- Verify Supabase credentials (URL, API key)
+- Ensure `documents` table exists
+- Check database quota or row limits
+- Validate payload schema matches table definition
 ```
 
-#### 3. High Memory Usage
+#### 3. Kafka Consumption Stalls
 
 ```bash
 # Symptoms
-Container killed due to OOMKilled
+No messages consumed; consumer lag growing
 
 # Diagnosis
-- Monitor /metrics endpoint for memory metrics
-- Check Redis cache sizes
-- Review URL deduplication cache size
+kafka-consumer-groups.sh --describe --group $KAFKA_GROUP_ID --bootstrap-server $KAFKA_BROKERS
 
 # Solutions
-- Increase container memory limits
-- Reduce MAX_CONCURRENCY setting
-- Implement cache size limits
-- Optimize URL normalization logic
+- Verify Kafka cluster is healthy
+- Check `parsed-pages` topic exists and has messages
+- Restart consumer to reset offset if needed
+- Review group ID and topic configurations
 ```
 
-#### 4. Slow Crawling Performance
+#### 4. High Memory/CPU Usage
 
 ```bash
 # Symptoms
-Low pages/second rate in metrics
+Container killed due to OOMKilled; high CPU load
 
 # Diagnosis
-curl http://localhost:8080/metrics | grep pages_processed
+- Monitor `/metrics` endpoint for resource usage
+- Check batch size & document sizes
 
 # Solutions
-- Increase MAX_CONCURRENCY (be respectful)
-- Reduce REQUEST_DELAY if appropriate
-- Optimize Redis connection pooling
-- Check network latency to target sites
+- Reduce BATCH_SIZE
+- Increase container memory/CPU limits
+- Optimize SentenceTransformer model choice
+- Run with GPU acceleration if available
 ```
-
-### Debug Mode
-
-Enable comprehensive debugging:
-
-```bash
-export ENABLE_DEBUG=true
-export LOG_LEVEL=debug
-./crawler
-```
-
-Debug mode provides:
-
-- Detailed request/response logging
-- Cache hit/miss statistics
-- URL validation decision logs
-- Performance timing information
 
 ## 🔒 Security
 
@@ -610,37 +598,30 @@ Debug mode provides:
 
 #### Firewall Rules
 
-- **Inbound**: Only port 8080 for health checks
-- **Outbound**: HTTP/HTTPS (80, 443) for crawling
-- **Internal**: Redis (6379) and Kafka (9092) access
+- **Inbound**: Only port 8080 open for health checks and metrics
+- **Outbound**: Access to Supabase & Qdrant endpoints, Kafka brokers
+- **Internal**: Kafka (9092) and Qdrant/Supabase communication over secure channels if available
 
-### URL Validation Security
+### Data Validation & Sanitization
 
-The crawler implements multiple security layers:
+The indexer implements several security measures for input and storage safety:
 
-#### IP Address Filtering
+#### Payload Validation
 
-```go
-// Prevent access to private networks
-SetAllowPrivateIPs(false)   // Block 10.0.0.0/8, 192.168.0.0/16
-SetAllowLoopback(false)     // Block 127.0.0.0/8
-```
+- Validates and sanitizes parsed-page JSON from Kafka before processing
+- Enforces max document & image sizes
+- Ignores malformed or incomplete records
 
-#### Domain Filtering
+#### Qdrant & Supabase Authentication
 
-```bash
-# Use whitelist for restricted crawling
-URL_WHITELIST=trusted.com,partner.org
+- Requires API keys and secure connections to both Qdrant and Supabase
+- Stores no credentials in code — relies on environment variables
 
-# Use blacklist for security
-URL_BLACKLIST=malicious.com,spam.org
-```
-
-#### Content Size Limits
+#### Batch Size Limits
 
 ```bash
-# Prevent memory exhaustion
-MAX_CONTENT_SIZE=2621440  # 2.5MB limit
+# Prevent resource exhaustion
+BATCH_SIZE=1000
 ```
 
 ### Container Security
@@ -648,11 +629,14 @@ MAX_CONTENT_SIZE=2621440  # 2.5MB limit
 #### Dockerfile Security Best Practices
 
 ```dockerfile
-# Use non-root user
+# Use non-root user if possible
 USER appuser
 
 # Minimal base image
-FROM alpine:3.19
+FROM python:3.12-slim
+
+# Install only necessary dependencies
+RUN pip install -r requirements.txt
 ```
 
 ## 📜 License

@@ -1,14 +1,13 @@
 """Configuration for the Indexer service."""
 
-from multiprocessing import cpu_count
-from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import Field
 
 
 class IndexerConfig(BaseSettings):
     """Loads Indexer configuration from environment variables or defaults."""
 
+    # Kafka
     kafka_brokers: str = Field(
         default="kafka:9092",
         description="Kafka brokers (comma-separated)",
@@ -21,19 +20,21 @@ class IndexerConfig(BaseSettings):
         default="indexer-group", validation_alias="KAFKA_GROUP_ID"
     )
 
-    tf_idf_min_df: int = Field(default=2, validation_alias="TF_IDF_MIN_DF")
-    max_features: int = Field(default=100_000, validation_alias="MAX_FEATURES")
-    batch_size: int = Field(default=1_000, validation_alias="BATCH_SIZE")
+    batch_size: int = Field(default=1000, validation_alias="BATCH_SIZE")
     max_docs: int | None = Field(default=None, validation_alias="MAX_DOCS")
 
-    num_worker_threads: int = Field(default=4, validation_alias="NUM_WORKER_THREADS")
-    preprocessing_workers: int = Field(
-        default=cpu_count(), validation_alias="PREPROCESSING_WORKERS"
+    # Qdrant
+    qdrant_url: str = Field(default="", validation_alias="QDRANT_URL")
+    qdrant_api_key: str = Field(default="", validation_alias="QDRANT_API_KEY")
+    collection_name: str = Field(default="sneakdex", validation_alias="COLLECTION_NAME")
+    collection_name_images: str = Field(
+        default="sneakdex-images", validation_alias="COLLECTION_NAME_IMAGES"
     )
 
-    index_save_interval: int = Field(
-        default=5_000, validation_alias="INDEX_SAVE_INTERVAL"
-    )
+    # Supabase/Postgres
+    supabase_url: str = Field(default="", validation_alias="SUPABASE_URL")
+    supabase_api_key: str = Field(default="", validation_alias="SUPABASE_API_KEY")
+
     monitor_port: int = Field(default=8080, validation_alias="MONITOR_PORT")
 
     model_config = {

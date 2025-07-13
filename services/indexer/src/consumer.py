@@ -1,23 +1,20 @@
 """Kafka consumer for ModernIndexer service."""
 
+import asyncio
 import json
 import logging
 import signal
 from typing import Any
 
 from confluent_kafka import Consumer, KafkaError
+from src.monitor import MESSAGES_CONSUMED, MESSAGES_FAILED, BATCHES_INDEXED
 
 log = logging.getLogger("indexer")
 
 
-def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
+async def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
     """
     Starts Kafka consumer loop to feed parsed pages into ModernIndexer.
-
-    Args:
-        indexer: ModernIndexer instance with `index_batch(documents: list[dict])`
-        config: IndexerConfig instance.
-        stop_event: Optional threading.Event or similar to gracefully stop loop.
     """
     consumer_conf = {
         "bootstrap.servers": config.kafka_brokers,
@@ -29,14 +26,15 @@ def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
     consumer.subscribe([config.kafka_topic_parsed])
     log.info(f"Subscribed to Kafka topic: {config.kafka_topic_parsed}")
 
-    # Batch config
     batch, batch_size = [], getattr(config, "batch_size", 50)
     message_count = 0
 
+    if stop_event is None:
+        stop_event = asyncio.Event()
+
     def signal_handler(sig, _):
         log.info(f"Received signal {sig}. Shutting down consumer.")
-        if stop_event:
-            stop_event.set()
+        stop_event.set()
 
     try:
         signal.signal(signal.SIGINT, signal_handler)
@@ -44,13 +42,10 @@ def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
     except ValueError:
         log.warning("Signal handling is only allowed in main thread.")
 
-    while True:
-        if stop_event and stop_event.is_set():
-            log.info("Stop event set. Exiting consumer loop.")
-            break
-
+    while not stop_event.is_set():
         msg = consumer.poll(timeout=5.0)
         if msg is None:
+            await asyncio.sleep(0.1)
             continue
 
         if msg.error():
@@ -66,9 +61,12 @@ def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
             batch.append(parsed_page)
             message_count += 1
 
+            MESSAGES_CONSUMED.inc()
+
             if len(batch) >= batch_size:
-                indexer.index_batch(batch)
+                await asyncio.to_thread(indexer.index_batch, batch)
                 log.info(f"Indexed batch of {len(batch)} documents.")
+                BATCHES_INDEXED.inc()
                 batch.clear()
 
             if config.max_docs and message_count >= config.max_docs:
@@ -76,11 +74,12 @@ def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
                 break
 
         except Exception as e:
+            MESSAGES_FAILED.inc()
             log.exception(f"Error processing message at offset {msg.offset()}: {e}")
 
-    # flush remaining docs
     if batch:
-        indexer.index_batch(batch)
+        await asyncio.to_thread(indexer.index_batch, batch)
+        BATCHES_INDEXED.inc()
         log.info(f"Indexed final batch of {len(batch)} documents before exit.")
 
     consumer.close()
