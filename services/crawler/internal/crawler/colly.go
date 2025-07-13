@@ -146,7 +146,16 @@ func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 				return // Skip error logging for performance
 			}
 
-			c.AddToPending(normalizedURL)
+			parentDepthAny := e.Request.Ctx.GetAny("depth")
+			parentDepth, ok := parentDepthAny.(int)
+			if !ok {
+				parentDepth = 1 // fallback if missing
+			}
+
+			c.AddToPending(QueueItem{
+				URL:   normalizedURL,
+				Depth: parentDepth + 1,
+			})
 		}
 	})
 }
@@ -182,6 +191,12 @@ func (c *Crawler) setErrorHandler(collector *colly.Collector) {
 func (c *Crawler) setResponseHandler(collector *colly.Collector) {
 	collector.OnResponse(func(r *colly.Response) {
 		defer c.DecrementInFlightPages()
+		// extract depth from context
+		depthAny := r.Request.Ctx.GetAny("depth")
+		depth, ok := depthAny.(int)
+		if !ok {
+			depth = 1
+		}
 
 		if c.Cfg.EnableDebug {
 			c.Log.WithFields(logrus.Fields{
@@ -190,11 +205,12 @@ func (c *Crawler) setResponseHandler(collector *colly.Collector) {
 				"status_code":  r.StatusCode,
 				"content_type": r.Headers.Get("Content-Type"),
 				"size":         len(r.Body),
+				"depth":        depth,
 			}).Debug("Response received")
 		}
 
 		if !strings.Contains(r.Headers.Get("Content-Type"), "text/html") {
-			c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String()}).Debug("Non-HTML content received, skipping")
+			c.Log.WithFields(logrus.Fields{"url": r.Request.URL.String(), "depth": depth}).Debug("Non-HTML content received, skipping")
 			c.MarkVisited(r.Request.URL.String())
 			r.Request.Abort()
 			return
@@ -205,7 +221,7 @@ func (c *Crawler) setResponseHandler(collector *colly.Collector) {
 		html := string(r.Body)
 
 		// Send the HTML content to Kafka
-		if retry, err := c.sendToKafka(url, html); err != nil {
+		if retry, err := c.sendToKafka(QueueItem{URL: url, Depth: depth}, html); err != nil {
 			if retry {
 				if exists, err := c.isURLRequeued(url); exists {
 					c.Log.WithFields(logrus.Fields{"url": url}).Trace("URL already requeued once. Will be marked as visited")
@@ -214,7 +230,7 @@ func (c *Crawler) setResponseHandler(collector *colly.Collector) {
 					// Re-queue URL instead of marking as visited
 					c.Log.WithFields(logrus.Fields{"url": url, "error": err}).Warn("Retriable error occurred, requeuing URL")
 
-					c.AddToPending(url)
+					c.AddToPending(QueueItem{URL: url, Depth: depth})
 					c.AddToRequeued(url)
 					return
 				}

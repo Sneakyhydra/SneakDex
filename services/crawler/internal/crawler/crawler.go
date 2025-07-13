@@ -199,7 +199,11 @@ func (c *Crawler) Start() error {
 				continue
 			}
 
-			c.AddToPending(normalizedURL)
+			item := QueueItem{
+				URL:   normalizedURL,
+				Depth: 0, // Start depth for initial URLs is 0.
+			}
+			c.AddToPending(item)
 		}
 
 		// Pre-populate local cache by loading existing Redis data

@@ -9,6 +9,7 @@ import (
 
 	// Third-party
 	"github.com/IBM/sarama"
+	"github.com/sirupsen/logrus"
 )
 
 // initializeKafka sets up the Kafka AsyncProducer with optimized configuration for high-throughput crawling.
@@ -79,7 +80,7 @@ func (c *Crawler) initializeKafka() error {
 //   - Content size validation against configured limits
 //   - Non-blocking send with timeout to prevent goroutine blocking
 //   - Retriable error detection for intelligent retry logic
-func (c *Crawler) sendToKafka(url, html string) (bool, error) {
+func (c *Crawler) sendToKafka(item QueueItem, html string) (bool, error) {
 	if len(html) > c.Cfg.MaxContentSize {
 		return false, fmt.Errorf("HTML content exceeds maximum size of %d bytes", c.Cfg.MaxContentSize)
 	}
@@ -87,20 +88,24 @@ func (c *Crawler) sendToKafka(url, html string) (bool, error) {
 	// Create the message
 	msg := &sarama.ProducerMessage{
 		Topic:     c.Cfg.KafkaTopic,
-		Key:       sarama.StringEncoder(url),
+		Key:       sarama.StringEncoder(item.URL),
 		Value:     sarama.StringEncoder(html),
 		Timestamp: time.Now(),
-		Metadata:  url, // Store URL for async error handling
+		Metadata:  item, // Store URL for async error handling
 	}
 
 	// Send message asynchronously (non-blocking)
 	select {
 	case c.AsyncProducer.Input() <- msg:
 		// Message queued successfully
+		c.Log.WithFields(logrus.Fields{
+			"url":   item.URL,
+			"depth": item.Depth,
+		}).Info("Message sent to Kafka successfully")
 		return false, nil
 	case <-time.After(100 * time.Millisecond):
 		// Channel is full, treat as retriable error
-		c.Log.WithField("url", url).Warn("Kafka producer input channel full, requeuing")
+		c.Log.WithField("url", item.URL).Warn("Kafka producer input channel full, requeuing")
 		return true, fmt.Errorf("kafka producer channel full")
 	}
 }
@@ -131,7 +136,10 @@ func (c *Crawler) startAsyncProducerHandlers() {
 			case success := <-c.AsyncProducer.Successes():
 				c.Stats.IncrementKafkaSuccessful()
 				if c.Cfg.EnableDebug {
-					c.Log.WithField("url", success.Metadata).Trace("Message sent to Kafka successfully")
+					c.Log.WithFields(logrus.Fields{
+						"url":   success.Metadata.(QueueItem).URL,
+						"depth": success.Metadata.(QueueItem).Depth,
+					}).Trace("Message sent to Kafka successfully")
 				}
 			case <-c.CShutdown:
 				c.Log.Info("Stopping Kafka success handler")
@@ -146,9 +154,9 @@ func (c *Crawler) startAsyncProducerHandlers() {
 		for {
 			select {
 			case err := <-c.AsyncProducer.Errors():
-				url := err.Msg.Metadata.(string)
+				item := err.Msg.Metadata.(QueueItem)
 				c.Log.WithFields(map[string]interface{}{
-					"url":   url,
+					"url":   item.URL,
 					"error": err.Err,
 				}).Error("Failed to send message to Kafka")
 
@@ -157,7 +165,7 @@ func (c *Crawler) startAsyncProducerHandlers() {
 					strings.Contains(err.Err.Error(), "no such host") ||
 					strings.Contains(err.Err.Error(), "timeout") {
 					c.Stats.IncrementKafkaErrored()
-					c.AddToPending(url)
+					c.AddToPending(item)
 				} else {
 					c.Stats.IncrementKafkaFailed()
 				}

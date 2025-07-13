@@ -3,6 +3,7 @@ package crawler
 import (
 	// Stdlib
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"time"
@@ -10,6 +11,11 @@ import (
 	// Third-party
 	"github.com/redis/go-redis/v9"
 )
+
+type QueueItem struct {
+    URL   string `json:"url"`
+    Depth int    `json:"depth"`
+}
 
 // initializeRedis establishes a connection to Redis with comprehensive retry logic and optimized timeouts.
 // Redis serves as the distributed queue and deduplication store for URLs across multiple crawler instances.
@@ -173,68 +179,85 @@ func (c *Crawler) IsRequeued(url string) (bool, error) {
 	return exists, nil
 }
 
-func (c *Crawler) AddToPending(url string) {
-	// Check if already in pending locally first (to avoid duplicate Redis calls)
-	if _, exists := c.Pending.Load(url); exists {
+func (c *Crawler) AddToPending(item QueueItem) {
+	// Check if already in pending locally
+	if _, exists := c.Pending.Load(item.URL); exists {
 		return
 	}
 
 	// Mark as pending locally
-	c.Pending.Store(url, struct{}{})
+	c.Pending.Store(item.URL, struct{}{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel()
 
-	// Try to add to set first
-	added, err := c.RedisClient.SAdd(ctx, "crawler:pending_urls_set", url).Result()
+	// Add to Redis SET to deduplicate
+	added, err := c.RedisClient.SAdd(ctx, "crawler:pending_urls_set", item.URL).Result()
 	if err != nil {
-		c.Log.WithField("url", url).WithError(err).Error("Failed to add to pending_urls_set")
+		c.Log.WithField("url", item.URL).WithError(err).Error("Failed to add to pending_urls_set")
 		c.Stats.IncrementRedisErrored()
 		return
 	}
 
-	ctx2, cancel2 := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
-	defer cancel2()
 	// Only push to queue if it wasn't already in the set
 	if added == 1 {
-		if err := c.RedisClient.RPush(ctx2, "crawler:pending_urls", url).Err(); err != nil {
-			c.Log.WithField("url", url).WithError(err).Error("Failed to enqueue to pending_urls")
+		data, err := json.Marshal(item)
+		if err != nil {
+			c.Log.WithField("url", item.URL).WithError(err).Error("Failed to marshal QueueItem")
 			c.Stats.IncrementRedisErrored()
-			// Optionally remove from set on failure to keep consistency
+			return
+		}
+
+		ctx2, cancel2 := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
+		defer cancel2()
+
+		if err := c.RedisClient.RPush(ctx2, "crawler:pending_urls", data).Err(); err != nil {
+			c.Log.WithField("url", item.URL).WithError(err).Error("Failed to enqueue to pending_urls")
+			c.Stats.IncrementRedisErrored()
+			// Optionally clean up set
 			ctx3, cancel3 := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 			defer cancel3()
-			_ = c.RedisClient.SRem(ctx3, "crawler:pending_urls_set", url).Err()
+			_ = c.RedisClient.SRem(ctx3, "crawler:pending_urls_set", item.URL).Err()
 		}
 	}
 }
 
-func (c *Crawler) RemoveFromPending() (string, error) {
+
+func (c *Crawler) RemoveFromPending() (*QueueItem, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel()
 
-	url, err := c.RedisClient.LPop(ctx, "crawler:pending_urls").Result()
+	data, err := c.RedisClient.LPop(ctx, "crawler:pending_urls").Result()
 	if err == redis.Nil {
-		return "", redis.Nil
+		return nil, redis.Nil
 	}
 	if err != nil {
 		c.Log.WithError(err).Error("Failed to dequeue from pending_urls")
 		c.Stats.IncrementRedisErrored()
-		return "", err
+		return nil, err
 	}
 
+	var item QueueItem
+	if err := json.Unmarshal([]byte(data), &item); err != nil {
+		c.Log.WithError(err).Error("Failed to unmarshal QueueItem from Redis")
+		c.Stats.IncrementRedisErrored()
+		return nil, err
+	}
+
+	// Remove from set
 	ctx2, cancel2 := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel2()
-	// Remove from set to keep consistency
-	if err := c.RedisClient.SRem(ctx2, "crawler:pending_urls_set", url).Err(); err != nil {
-		c.Log.WithField("url", url).WithError(err).Error("Failed to remove from pending_urls_set")
+	if err := c.RedisClient.SRem(ctx2, "crawler:pending_urls_set", item.URL).Err(); err != nil {
+		c.Log.WithField("url", item.URL).WithError(err).Error("Failed to remove from pending_urls_set")
 		c.Stats.IncrementRedisErrored()
 	}
 
-	// Remove from local pending cache
-	c.Pending.Delete(url)
+	// Remove from local pending
+	c.Pending.Delete(item.URL)
 
-	return url, nil
+	return &item, nil
 }
+
 
 // preloadLocalCaches optimizes crawler performance by bulk-loading existing URLs from Redis into local memory.
 // This is a startup optimization that dramatically reduces Redis queries during crawling by pre-populating

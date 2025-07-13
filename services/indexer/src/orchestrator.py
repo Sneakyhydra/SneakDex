@@ -1,5 +1,5 @@
-import uuid
 import logging
+import hashlib
 
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
@@ -84,7 +84,7 @@ class ModernIndexer:
         supabase_rows = []
 
         for i, doc in enumerate(documents):
-            doc_id = str(uuid.uuid4())
+            doc_id = self.generate_doc_id(doc.get("url", ""))
 
             payload = {
                 "url": doc.get("url"),
@@ -140,9 +140,10 @@ class ModernIndexer:
                     "page_title": doc.get("title"),
                 }
 
+                img_id = self.generate_doc_id(img.get("src", ""))
                 image_points.append(
                     PointStruct(
-                        id=str(uuid.uuid4()),
+                        id=img_id,
                         vector=img_embeddings[i],
                         payload=img_payload,
                     )
@@ -173,3 +174,6 @@ class ModernIndexer:
         """Returns the number of vectors in the Qdrant collection."""
         stats = self.client.get_collection(self.collection_name)
         return stats.vectors_count or 0
+
+    def generate_doc_id(self, url: str) -> str:
+        return hashlib.sha256(url.encode()).hexdigest()

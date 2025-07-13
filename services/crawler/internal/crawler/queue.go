@@ -43,7 +43,7 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan c
 				continue
 			}
 
-			url, err := c.RemoveFromPending()
+			item, err := c.RemoveFromPending()
 			if err == redis.Nil {
 				emptyQueueChecks++
 				c.Log.WithField("empty_checks", emptyQueueChecks).Debug("No URLs in Redis pending queue")
@@ -63,16 +63,26 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan c
 			}
 
 			emptyQueueChecks = 0 // Reset counter on successful fetch
-			c.Log.WithField("url", url).Debug("Dispatching URL from Redis queue to Colly")
+			c.Log.WithField("url", item.URL).Debug("Dispatching URL from Redis queue to Colly")
+			if item.Depth > c.Cfg.CrawlDepth {
+				c.Log.WithFields(logrus.Fields{
+					"url":   item.URL,
+					"depth": item.Depth,
+				}).Debug("Skipping URL due to exceeding MaxDepth")
+				continue
+			}
 
 			// Visit URL using Colly (non-blocking due to Colly's internal concurrency)
-			if err := collector.Visit(url); err != nil {
+			ctx := colly.NewContext()
+			ctx.Put("depth", item.Depth)
+
+			if err := collector.Request("GET", item.URL, nil, ctx, nil); err != nil {
 				c.Log.WithFields(logrus.Fields{
-					"url":   url,
+					"url":   item.URL,
 					"error": err,
 				}).Warn("Colly failed to initiate visit, marking URL as visited to avoid requeue")
 
-				c.MarkVisited(url)
+				c.MarkVisited(item.URL)
 				c.Stats.IncrementPagesFailed()
 			}
 		}
