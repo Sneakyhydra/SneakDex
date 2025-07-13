@@ -1,5 +1,5 @@
 import logging
-import hashlib
+import uuid
 
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
@@ -79,9 +79,9 @@ class ModernIndexer:
         texts_to_embed = [self.build_embedding_text(doc) for doc in documents]
         embeddings = self.model.encode(texts_to_embed, show_progress_bar=False)
 
-        points = []
-        image_points = []
-        supabase_rows = []
+        points = {}
+        image_points = {}
+        supabase_rows = {}
 
         for i, doc in enumerate(documents):
             doc_id = self.generate_doc_id(doc.get("url", ""))
@@ -103,72 +103,91 @@ class ModernIndexer:
                 "text_snippet": doc.get("cleaned_text", "")[:500],
             }
 
-            points.append(
-                PointStruct(
-                    id=doc_id,
-                    vector=embeddings[i],
-                    payload=payload,
-                )
+            points[doc_id] = PointStruct(
+                id=doc_id,
+                vector=embeddings[i],
+                payload=payload,
             )
 
-            supabase_rows.append(
-                {
-                    "id": doc_id,
-                    "url": doc.get("url"),
-                    "title": doc.get("title"),
-                    "lang": doc.get("language"),
-                    "_tmp_content": doc.get("cleaned_text", ""),
-                }
-            )
+            supabase_rows[doc_id] = {
+                "id": doc_id,
+                "url": doc.get("url"),
+                "title": doc.get("title"),
+                "lang": doc.get("language"),
+                "_tmp_content": doc.get("cleaned_text", ""),
+            }
 
             imgs_to_embed = [
                 self.build_image_caption(img) for img in doc.get("images", [])
             ]
-            img_embeddings = self.model.encode(imgs_to_embed, show_progress_bar=False)
+            if imgs_to_embed:
+                img_embeddings = self.model.encode(
+                    imgs_to_embed, show_progress_bar=False
+                )
+            else:
+                img_embeddings = []
 
             # index images
-            for i, img in enumerate(doc.get("images", [])):
-                if not imgs_to_embed[i]:
+            for j, img in enumerate(doc.get("images", [])):
+                if not imgs_to_embed[j]:
                     continue  # skip empty captions
 
                 img_payload = {
                     "src": img.get("src"),
                     "alt": img.get("alt"),
                     "title": img.get("title"),
-                    "caption": imgs_to_embed[i],
+                    "caption": imgs_to_embed[j],
                     "page_url": doc.get("url"),
                     "page_title": doc.get("title"),
                 }
 
                 img_id = self.generate_doc_id(img.get("src", ""))
-                image_points.append(
-                    PointStruct(
-                        id=img_id,
-                        vector=img_embeddings[i],
-                        payload=img_payload,
-                    )
+                image_points[img_id] = PointStruct(
+                    id=img_id,
+                    vector=img_embeddings[j],
+                    payload=img_payload,
                 )
 
+        # Convert dicts to lists
+        points = list(points.values())
+        image_points = list(image_points.values())
+        supabase_rows = list(supabase_rows.values())
+
         # Qdrant
-        self.client.upsert(collection_name=self.collection_name, points=points)
-        log.info(
-            f"Indexed {len(points)} documents into Qdrant collection '{self.collection_name}'."
-        )
-        if image_points:
-            self.client.upsert(
-                collection_name=self.collection_name_images, points=image_points
-            )
-            log.info(
-                f"Indexed {len(image_points)} images into Qdrant collection '{self.collection_name_images}'."
-            )
+        try:
+            if points:
+                self.client.upsert(collection_name=self.collection_name, points=points)
+                log.info(
+                    f"Indexed {len(points)} documents into Qdrant collection '{self.collection_name}'."
+                )
+        except Exception as e:
+            log.error(f"Failed to upsert points to Qdrant: {e}")
+
+        try:
+            if image_points:
+                self.client.upsert(
+                    collection_name=self.collection_name_images, points=image_points
+                )
+                log.info(
+                    f"Indexed {len(image_points)} images into Qdrant collection '{self.collection_name_images}'."
+                )
+        except Exception as e:
+            log.error(f"Failed to upsert image points to Qdrant: {e}")
 
         # Supabase
-        response = self.supabase.table("documents").insert(supabase_rows).execute()
-
-        if not response.data:
-            log.error(f"Supabase insert failed. Response: {response.model_dump_json()}")
-        else:
-            log.info(f"Inserted {len(response.data)} rows into Supabase.")
+        try:
+            if supabase_rows:
+                response = (
+                    self.supabase.table("documents").upsert(supabase_rows).execute()
+                )
+                if not response.data:
+                    log.error(
+                        f"Supabase insert failed. Response: {response.model_dump_json()}"
+                    )
+                else:
+                    log.info(f"Inserted {len(response.data)} rows into Supabase.")
+        except Exception as e:
+            log.error(f"Failed to upsert rows to Supabase: {e}")
 
     def count(self) -> int:
         """Returns the number of vectors in the Qdrant collection."""
@@ -176,4 +195,4 @@ class ModernIndexer:
         return stats.vectors_count or 0
 
     def generate_doc_id(self, url: str) -> str:
-        return hashlib.sha256(url.encode()).hexdigest()
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, url))

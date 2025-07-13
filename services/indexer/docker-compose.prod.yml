@@ -92,10 +92,10 @@ services:
       - sneakdex-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 10s
     restart: unless-stopped
     deploy:
       resources:
@@ -138,10 +138,10 @@ services:
       - sneakdex-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 10s
     restart: unless-stopped
     deploy:
       resources:
@@ -189,7 +189,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 10s
     restart: unless-stopped
     deploy:
       resources:
