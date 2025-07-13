@@ -5,8 +5,8 @@ import { pipeline } from "@xenova/transformers";
 
 // Initialize Qdrant
 const qdrant = new QdrantClient({
-  url: "https://eaec3da6-1c69-4c3b-bd7b-f61fde0e2761.eu-central-1-0.aws.cloud.qdrant.io:6333",
-  apiKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.x7amgrQLYPa5fg56TSBmWYtX1XkuS79wIoYC-tyedDU",
+  url: process.env.QDRANT_URL,
+  apiKey: process.env.QDRANT_API_KEY,
 });
 
 // Initialize Redis
