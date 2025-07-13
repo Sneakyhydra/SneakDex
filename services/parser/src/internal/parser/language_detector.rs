@@ -31,3 +31,18 @@ pub fn detect_language(text: &str) -> Option<String> {
         }
     })
 }
+
+pub fn map_lang_to_pg(lang: &str) -> &str {
+    match lang {
+        "en" | "eng" => "english",
+        "de" | "deu" => "german",
+        "fr" | "fra" => "french",
+        "ru" | "rus" => "russian",
+        "es" | "spa" => "spanish",
+        "it" | "ita" => "italian",
+        "pt" | "por" => "portuguese",
+        "nl" | "nld" => "dutch",
+        "sv" | "swe" => "swedish",
+        _ => "simple",
+    }
+}

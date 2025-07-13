@@ -13,7 +13,7 @@ pub mod models;
 mod text_utils;
 
 use extractors::{extract_headings, extract_images, extract_links, extract_main_content};
-use language_detector::detect_language;
+use language_detector::{detect_language, map_lang_to_pg};
 use models::ParsedPage;
 use text_utils::clean_text;
 
@@ -67,6 +67,7 @@ impl HtmlParser {
 
         let word_count = cleaned_text.split_whitespace().count();
         let language = detect_language(&cleaned_text);
+        let pg_lang = language.as_deref().map(map_lang_to_pg).unwrap_or("simple");
 
         Ok(ParsedPage {
             url: url.to_string(),
@@ -77,7 +78,7 @@ impl HtmlParser {
             links,
             images,
             canonical_url,
-            language,
+            language: Some(pg_lang.to_string()),
             word_count,
             meta_keywords,
             timestamp: chrono::Utc::now(),
