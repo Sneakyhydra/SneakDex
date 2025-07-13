@@ -1,3 +1,4 @@
+"use client";
 import { Search } from "lucide-react";
 
 type Heading = { level: number; text: string };

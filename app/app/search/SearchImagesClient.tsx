@@ -1,3 +1,4 @@
+"use client";
 import { Image as LucideImage } from "lucide-react";
 
 type SearchResponse = {
