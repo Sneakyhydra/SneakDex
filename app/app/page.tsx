@@ -135,7 +135,7 @@ const Home = () => {
 
         {/* Search form */}
         <div
-          className={`w-full max-w-2xl transition-all duration-700 delay-200 ${
+          className={`w-full max-w-2xl min-w-72 transition-all duration-700 delay-200 ${
             showAnimations
               ? "translate-y-0 opacity-100"
               : "translate-y-8 opacity-0"

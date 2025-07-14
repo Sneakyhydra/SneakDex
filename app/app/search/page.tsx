@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
-import { Search, Image, Sparkles } from "lucide-react";
+import { Search, Image, Zap } from "lucide-react";
 import SearchClient from "./SearchClient";
 import SearchImagesClient from "./SearchImagesClient";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -53,8 +53,10 @@ const SearchPage = () => {
   const [imgData, setImgData] = useState<SearchImgResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingImg, setLoadingImg] = useState(false);
-  const [loadedOnce, setLoadedOnce] = useState(false);
-  const [loadedImgOnce, setLoadedImgOnce] = useState(false);
+  const [loadedOnce, setLoadedOnce] = useState<string | null>(null);
+  const [loadedImgOnce, setLoadedImgOnce] = useState<string | null>(null);
+
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -65,7 +67,6 @@ const SearchPage = () => {
   const fetchResults = async (q: string) => {
     setLoading(true);
     setData(null);
-    setLoadedOnce(true);
 
     try {
       const res = await fetch(`/api/search`, {
@@ -77,6 +78,7 @@ const SearchPage = () => {
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const json: SearchResponse = await res.json();
       setData(json);
+      setLoadedOnce(q);
     } catch (err) {
       console.error("Error fetching search results", err);
       setData(null);
@@ -88,7 +90,6 @@ const SearchPage = () => {
   const fetchImgResults = async (q: string) => {
     setLoadingImg(true);
     setImgData(null);
-    setLoadedImgOnce(true);
 
     try {
       const res = await fetch(`/api/search-images`, {
@@ -100,6 +101,7 @@ const SearchPage = () => {
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const json: SearchImgResponse = await res.json();
       setImgData(json);
+      setLoadedImgOnce(q);
     } catch (err) {
       console.error("Error fetching image results", err);
       setImgData(null);
@@ -148,50 +150,107 @@ const SearchPage = () => {
 
       {/* Header */}
       <div className="relative z-10 w-full max-w-6xl mx-auto mb-8">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 md:gap-6">
-          {/* Logo */}
-          <div className="flex items-center justify-center gap-3">
-            <Link
-              href="/"
-              className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400"
-            >
-              SneakDex
-            </Link>
-            <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
+        <div className="flex items-center flex-row flex-wrap justify-center gap-4 md:gap-6">
+          {/* Logo with animations */}
+          <div>
+            <div className="relative group flex flex-col items-center">
+              {/* Main Title with Logo as S */}
+              <h1 className="relative flex items-end text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-100 to-teal-300 text-center tracking-tight mb-4">
+                {/* Logo replacing the S */}
+                <div className="relative group/logo inline-block">
+                  <img
+                    src="/favicon.ico"
+                    alt="SneakDex Logo"
+                    className="min-w-10 min-h-10 h-10 w-10 md:min-h-16 md:min-w-16 md:h-16 md:w-16 object-contain filter drop-shadow-lg transition-all duration-300 group-hover/logo:scale-110 group-hover/logo:filter group-hover/logo:brightness-110"
+                    style={{
+                      filter: "drop-shadow(0 0 20px rgba(16, 185, 129, 0.3))",
+                    }}
+                  />
+                </div>
+                <span className="pb-0.5 md:pb-1">neakDex</span>
+              </h1>
+
+              {/* Glowing effect */}
+              <div className="absolute inset-0 flex items-center justify-center text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400/20 via-teal-400/20 to-lime-400/20 text-center tracking-tight blur-sm group-hover:blur-md transition-all duration-300">
+                {/* Glow effect behind logo */}
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-full blur-xl opacity-0 group-hover/logo:opacity-100 transition-all duration-300 -z-10" />
+
+                {/* Animated ring around logo */}
+                <div className="absolute inset-0 rounded-full border-2 border-emerald-400/0 group-hover/logo:border-emerald-400/30 transition-all duration-300 animate-pulse" />
+                <span className="mb-2.5">neakDex</span>
+              </div>
+            </div>
           </div>
 
-          {/* Search bar */}
-          <form className="flex-1 w-full" onSubmit={handleSearch}>
-            <div className="relative flex items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-xl p-1 transition-all duration-300 hover:border-zinc-600/50">
-              <div className="pl-4 pr-2">
-                <Search className="w-4 h-4 text-zinc-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="Search for anything…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-grow px-2 py-3 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-sm"
-              />
-              <button
-                type="submit"
-                className="ml-2 px-6 py-3 text-white cursor-pointer rounded-lg font-medium transition-all duration-300 hover:brightness-110 active:scale-95"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #065f46, #047857, #059669)",
-                }}
+          {/* Search form */}
+          <div className="w-full max-w-2xl min-w-72 transition-all duration-700 delay-200">
+            <div className="relative">
+              {/* Search input container */}
+              <div
+                className={`px-4 relative flex flex-wrap items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-2xl py-1 transition-all duration-300 ${
+                  isSearchFocused
+                    ? "border-emerald-400/50 shadow-lg shadow-emerald-500/20"
+                    : "hover:border-zinc-600/50"
+                }`}
               >
-                Search
-              </button>
+                {/* Search icon */}
+                <div className="pr-3">
+                  <Search
+                    className={`w-4 h-4 transition-colors duration-300 ${
+                      isSearchFocused ? "text-emerald-400" : "text-zinc-400"
+                    }`}
+                  />
+                </div>
+
+                {/* Input field */}
+                <input
+                  type="text"
+                  placeholder="Search for anything…"
+                  className="flex-grow px-2 py-4 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-lg"
+                  value={searchQuery}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setSearchQuery(e.target.value)
+                  }
+                  onFocus={() => setIsSearchFocused(true)}
+                  onBlur={() => setIsSearchFocused(false)}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key === "Enter") {
+                      handleSearch();
+                    }
+                  }}
+                />
+
+                {/* Search button with isolated hover */}
+                <button
+                  type="submit"
+                  onClick={handleSearch}
+                  className="relative justify-center cursor-pointer w-full px-8 py-4 text-white rounded-xl font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-95 flex items-center gap-2 overflow-hidden group/button hover:brightness-110"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #065f46, #047857, #059669)",
+                  }}
+                >
+                  {/* Button content */}
+                  <span className="relative z-10">Search</span>
+                  <Zap className="w-4 h-4 relative z-10" />
+                </button>
+              </div>
+
+              {/* Animated border glow */}
+              <div
+                className={`absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-2xl blur-xl transition-opacity duration-300 -z-10 ${
+                  isSearchFocused ? "opacity-100" : "opacity-0"
+                }`}
+              />
             </div>
-          </form>
+          </div>
 
           {/* Tabs */}
-          <div className="flex gap-1 justify-center md:justify-start bg-zinc-900/50 backdrop-blur-sm rounded-xl p-1 border border-zinc-700/50 w-full md:w-auto">
+          <div className="flex gap-1 max-w-2xl min-w-60 justify-center md:justify-start bg-zinc-900/50 backdrop-blur-sm rounded-xl p-1 border border-zinc-700/50 w-full">
             <button
               onClick={() => {
                 setTab("text");
-                if (!loadedOnce) {
+                if (!loadedOnce || (loadedOnce && loadedOnce !== query)) {
                   fetchResults(query);
                 }
               }}
@@ -213,7 +272,10 @@ const SearchPage = () => {
             <button
               onClick={() => {
                 setTab("images");
-                if (!loadedImgOnce) {
+                if (
+                  !loadedImgOnce ||
+                  (loadedImgOnce && loadedImgOnce !== query)
+                ) {
                   fetchImgResults(query);
                 }
               }}
