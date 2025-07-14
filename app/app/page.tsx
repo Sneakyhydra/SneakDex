@@ -101,18 +101,35 @@ const Home = () => {
               : "translate-y-8 opacity-0"
           }`}
         >
-          <div className="relative group">
-            <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-100 to-teal-300 text-center mb-4 tracking-tight">
-              SneakDex
+          <div className="relative group flex flex-col items-center">
+            {/* Main Title with Logo as S */}
+            <h1 className="relative flex items-end text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-100 to-teal-300 text-center tracking-tight mb-4">
+              {/* Logo replacing the S */}
+              <div className="relative group/logo inline-block">
+                <img
+                  src="/favicon.ico"
+                  alt="SneakDex Logo"
+                  className="h-10 w-10 md:h-16 md:w-16 object-contain filter drop-shadow-lg transition-all duration-300 group-hover/logo:scale-110 group-hover/logo:filter group-hover/logo:brightness-110"
+                  style={{
+                    filter: "drop-shadow(0 0 20px rgba(16, 185, 129, 0.3))",
+                  }}
+                />
+              </div>
+              <span className="pb-0.5 md:pb-1">neakDex</span>
             </h1>
 
             {/* Glowing effect */}
-            <div className="absolute inset-0 text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400/20 via-teal-400/20 to-lime-400/20 text-center mb-4 tracking-tight blur-sm group-hover:blur-md transition-all duration-300">
-              SneakDex
+            <div className="absolute inset-0 flex items-center justify-center text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400/20 via-teal-400/20 to-lime-400/20 text-center tracking-tight blur-sm group-hover:blur-md transition-all duration-300">
+              {/* Glow effect behind logo */}
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-full blur-xl opacity-0 group-hover/logo:opacity-100 transition-all duration-300 -z-10" />
+
+              {/* Animated ring around logo */}
+              <div className="absolute inset-0 rounded-full border-2 border-emerald-400/0 group-hover/logo:border-emerald-400/30 transition-all duration-300 animate-pulse" />
+              <span className="mb-2.5">neakDex</span>
             </div>
 
             {/* Sparkle icon */}
-            <Sparkles className="absolute -top-2 -right-2 w-8 h-8 text-amber-400 animate-pulse" />
+            <Sparkles className="absolute -top-5 -right-7 w-8 h-8 text-amber-400 animate-pulse" />
           </div>
         </div>
 
@@ -127,16 +144,16 @@ const Home = () => {
           <div className="relative">
             {/* Search input container */}
             <div
-              className={`relative flex items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-2xl p-1 transition-all duration-300 ${
+              className={`px-4 relative flex flex-wrap items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-2xl py-1 transition-all duration-300 ${
                 isSearchFocused
                   ? "border-emerald-400/50 shadow-lg shadow-emerald-500/20"
                   : "hover:border-zinc-600/50"
               }`}
             >
               {/* Search icon */}
-              <div className="pl-5 pr-3">
+              <div className="pr-3">
                 <Search
-                  className={`w-5 h-5 transition-colors duration-300 ${
+                  className={`w-4 h-4 transition-colors duration-300 ${
                     isSearchFocused ? "text-emerald-400" : "text-zinc-400"
                   }`}
                 />
@@ -164,7 +181,7 @@ const Home = () => {
               <button
                 type="submit"
                 onClick={handleSearch}
-                className="relative cursor-pointer ml-2 px-8 py-4 text-white rounded-xl font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-95 flex items-center gap-2 overflow-hidden group/button hover:brightness-110"
+                className="relative justify-center cursor-pointer w-full px-8 py-4 text-white rounded-xl font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-95 flex items-center gap-2 overflow-hidden group/button hover:brightness-110"
                 style={{
                   background:
                     "linear-gradient(135deg, #065f46, #047857, #059669)",
