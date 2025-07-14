@@ -152,7 +152,7 @@ const SearchPage = () => {
       <div className="relative z-10 w-full max-w-6xl mx-auto mb-8">
         <div className="flex items-center flex-row flex-wrap justify-center gap-4 md:gap-6">
           {/* Logo with animations */}
-          <div>
+          <Link href="/">
             <div className="relative group flex flex-col items-center">
               {/* Main Title with Logo as S */}
               <h1 className="relative flex items-end text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-100 to-teal-300 text-center tracking-tight mb-4">
@@ -180,7 +180,7 @@ const SearchPage = () => {
                 <span className="mb-2.5">neakDex</span>
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Search form */}
           <div className="w-full max-w-2xl min-w-72 transition-all duration-700 delay-200">
