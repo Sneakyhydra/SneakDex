@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { pipeline } from "@xenova/transformers";
+import { Redis } from "@upstash/redis";
 
 // === CONFIG ===
 const QDRANT_URL = process.env.QDRANT_URL!;
 const QDRANT_API_KEY = process.env.QDRANT_API_KEY!;
-const COLLECTION_NAME_IMAGES = process.env.COLLECTION_NAME_IMAGES || "sneakdex-images";
+const COLLECTION_NAME_IMAGES =
+  process.env.COLLECTION_NAME_IMAGES || "sneakdex-images";
 
 // === Qdrant Client ===
 const qdrant = new QdrantClient({ url: QDRANT_URL, apiKey: QDRANT_API_KEY });
@@ -31,10 +33,19 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const query: string = body.query?.trim();
-    const top_k: number = body.top_k ?? 100;
+    const top_k: number = 100;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query" }, { status: 400 });
+    }
+
+    const redis = Redis.fromEnv();
+
+    const cacheKey = `search-images:${query}:${top_k}`;
+    const cachedResult = await redis.get(cacheKey);
+
+    if (cachedResult) {
+      return NextResponse.json({ source: "cache", results: cachedResult });
     }
 
     const vector = await computeEmbedding(query);
@@ -52,9 +63,15 @@ export async function POST(req: Request) {
       rank: idx + 1,
     }));
 
+    // Cache the results
+    await redis.set(cacheKey, results, { ex: 60 * 60 });
+
     return NextResponse.json({ source: "qdrant-images", results });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }

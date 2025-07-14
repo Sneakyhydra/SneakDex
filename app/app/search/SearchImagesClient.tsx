@@ -21,7 +21,7 @@ type SearchResponse = {
 const SearchImagesClient = ({ data }: { data: SearchResponse }) => {
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-4 justify-center">
+      <div className="flex flex-wrap gap-4 justify-evenly">
         {data.results.map((result) => {
           const p = result.payload;
 

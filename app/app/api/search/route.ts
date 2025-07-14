@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { pipeline } from "@xenova/transformers";
 import { createClient } from "@supabase/supabase-js";
+import { Redis } from "@upstash/redis";
 
 // === CONFIG ===
 const QDRANT_URL = process.env.QDRANT_URL!;
@@ -35,10 +36,19 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const query: string = body.query?.trim();
-    const top_k: number = body.top_k ?? 100;
+    const top_k: number = 100;
 
     if (!query) {
       return NextResponse.json({ error: "Missing query" }, { status: 400 });
+    }
+
+    const redis = Redis.fromEnv();
+
+    const cacheKey = `search:${query}:${top_k}`;
+    const cachedResult = await redis.get(cacheKey);
+
+    if (cachedResult) {
+      return NextResponse.json({ source: "cache", results: cachedResult });
     }
 
     // === QDRANT SEARCH ===
@@ -60,9 +70,10 @@ export async function POST(req: Request) {
 
     // === SUPABASE SEARCH ===
     const pgPromise = (async () => {
-      const { data, error } = await supabase
-  .rpc("search_documents", { q: query, limit_count: top_k });
-
+      const { data, error } = await supabase.rpc("search_documents", {
+        q: query,
+        limit_count: top_k,
+      });
 
       if (error) {
         console.error("Supabase error:", error);
@@ -77,7 +88,10 @@ export async function POST(req: Request) {
       }));
     })();
 
-    const [qdrantResults, pgResults] = await Promise.all([qdrantPromise, pgPromise]);
+    const [qdrantResults, pgResults] = await Promise.all([
+      qdrantPromise,
+      pgPromise,
+    ]);
 
     // === MERGE RESULTS ===
     const merged = new Map<string, any>();
@@ -124,9 +138,15 @@ export async function POST(req: Request) {
       .sort((a, b) => b.hybridScore - a.hybridScore)
       .slice(0, top_k);
 
+    // Cache the results
+    await redis.set(cacheKey, finalResults, { ex: 60 * 60 });
+
     return NextResponse.json({ source: "hybrid", results: finalResults });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
