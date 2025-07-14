@@ -42,7 +42,7 @@ const SearchClient = ({ data }: { data: SearchResponse }) => {
           return (
             <div
               key={result.id}
-              className="border-b border-zinc-700/30 pb-6 last:border-b-0 h-40"
+              className="border-b border-zinc-700/30 pb-6 last:border-b-0"
             >
               <div className="flex items-start gap-4 max-w-6xl">
                 <div className="w-8 h-8 min-h-8 min-w-8 md:w-14 md:h-14 md:min-h-14 md:min-w-14 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-lg flex items-center justify-center">
