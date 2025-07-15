@@ -26,7 +26,7 @@ const SearchClient = ({ data }: { data: SearchResponse }) => {
       {/* Top bar: results count & sort */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <p className="text-zinc-400 text-sm">
-          About {data.results.length} results
+          Showing top {data.results.length} results. Source: {data.source}
         </p>
       </div>
 

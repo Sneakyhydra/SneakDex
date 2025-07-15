@@ -88,18 +88,13 @@ class ModernIndexer:
 
             payload = {
                 "url": doc.get("url"),
-                "title": doc.get("title"),
-                "description": doc.get("description"),
-                "headings": doc.get("headings"),
-                "links": doc.get("links"),
-                "images": doc.get("images"),
-                "canonical_url": doc.get("canonical_url"),
+                "title": doc.get("title", ""),
+                "description": doc.get("description", ""),
+                "headings": doc.get("headings", [])[:3],
+                "images": doc.get("images", [])[:3],
                 "language": doc.get("language"),
-                "word_count": doc.get("word_count"),
                 "timestamp": doc.get("timestamp"),
-                "meta_keywords": doc.get("meta_keywords"),
                 "content_type": doc.get("content_type"),
-                "encoding": doc.get("encoding"),
                 "text_snippet": doc.get("cleaned_text", "")[:500],
             }
 
@@ -134,11 +129,13 @@ class ModernIndexer:
 
                 img_payload = {
                     "src": img.get("src"),
-                    "alt": img.get("alt"),
-                    "title": img.get("title"),
+                    "alt": img.get("alt", ""),
+                    "title": img.get("title", ""),
                     "caption": imgs_to_embed[j],
                     "page_url": doc.get("url"),
-                    "page_title": doc.get("title"),
+                    "page_title": doc.get("title", ""),
+                    "page_description": doc.get("description", ""),
+                    "timestamp": doc.get("timestamp"),
                 }
 
                 img_id = self.generate_doc_id(img.get("src", ""))

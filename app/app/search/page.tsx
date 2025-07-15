@@ -72,7 +72,7 @@ const SearchPage = () => {
       const res = await fetch(`/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, top_k: 100 }),
+        body: JSON.stringify({ query: q }),
       });
 
       if (!res.ok) throw new Error(`API error: ${res.status}`);
@@ -95,7 +95,7 @@ const SearchPage = () => {
       const res = await fetch(`/api/search-images`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, top_k: 100 }),
+        body: JSON.stringify({ query: q }),
       });
 
       if (!res.ok) throw new Error(`API error: ${res.status}`);
