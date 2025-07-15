@@ -57,6 +57,18 @@ const SearchPage = () => {
   const [loadedImgOnce, setLoadedImgOnce] = useState<string | null>(null);
 
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [showAnimations, setShowAnimations] = useState(false);
+
+  useEffect(() => {
+    // Trigger animations after component mounts
+    const timer = setTimeout(() => {
+      setShowAnimations(true);
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -150,99 +162,102 @@ const SearchPage = () => {
 
       {/* Header */}
       <div className="relative z-10 w-full max-w-6xl mx-auto mb-8">
-        <div className="flex items-center flex-row flex-wrap justify-center gap-4 md:gap-6">
+        <div className="flex items-center flex-row flex-wrap justify-center gap-4 md:gap-8">
           {/* Logo with animations */}
           <Link href="/">
-            <div className="relative group flex flex-col items-center">
-              {/* Main Title with Logo as S */}
-              <h1 className="relative flex items-end text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-100 to-teal-300 text-center tracking-tight mb-4">
-                {/* Logo replacing the S */}
-                <div className="relative group/logo inline-block">
-                  <img
-                    src="/favicon.ico"
-                    alt="SneakDex Logo"
-                    className="min-w-10 min-h-10 h-10 w-10 md:min-h-16 md:min-w-16 md:h-16 md:w-16 object-contain filter drop-shadow-lg transition-all duration-300 group-hover/logo:scale-110 group-hover/logo:filter group-hover/logo:brightness-110"
-                    style={{
-                      filter: "drop-shadow(0 0 20px rgba(16, 185, 129, 0.3))",
-                    }}
-                  />
+            <div
+              className={`transform transition-all duration-1000 ${
+                showAnimations
+                  ? "translate-y-0 opacity-100"
+                  : "translate-y-8 opacity-0"
+              }`}
+            >
+              <div className="relative flex items-center">
+                <div className="relative">
+                  {/* Foreground text */}
+                  <h1
+                    className="relative font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-100 to-teal-300 text-center tracking-tight
+      text-5xl"
+                  >
+                    SneakDex
+                  </h1>
+
+                  {/* Glowing text behind */}
+                  <div
+                    className="absolute inset-0 font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-300/50 via-teal-300/50 to-lime-300/50 text-center tracking-tight blur-xl opacity-40 pointer-events-none
+      text-[clamp(2.5rem,8vw,8rem)]"
+                  >
+                    SneakDex
+                  </div>
+
+                  {/* Orb behind */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-full blur-2xl opacity-40 animate-pulse pointer-events-none" />
                 </div>
-                <span className="pb-0.5 md:pb-1">neakDex</span>
-              </h1>
-
-              {/* Glowing effect */}
-              <div className="absolute inset-0 flex items-center justify-center text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400/20 via-teal-400/20 to-lime-400/20 text-center tracking-tight blur-sm group-hover:blur-md transition-all duration-300">
-                {/* Glow effect behind logo */}
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-full blur-xl opacity-0 group-hover/logo:opacity-100 transition-all duration-300 -z-10" />
-
-                {/* Animated ring around logo */}
-                <div className="absolute inset-0 rounded-full border-2 border-emerald-400/0 group-hover/logo:border-emerald-400/30 transition-all duration-300 animate-pulse" />
-                <span className="mb-2.5">neakDex</span>
               </div>
             </div>
           </Link>
 
           {/* Search form */}
-          <div className="w-full max-w-2xl min-w-72 transition-all duration-700 delay-200">
-            <div className="relative">
-              {/* Search input container */}
-              <div
-                className={`px-4 relative flex flex-wrap items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-2xl py-1 transition-all duration-300 ${
-                  isSearchFocused
-                    ? "border-emerald-400/50 shadow-lg shadow-emerald-500/20"
-                    : "hover:border-zinc-600/50"
-                }`}
-              >
-                {/* Search icon */}
-                <div className="pr-3">
-                  <Search
-                    className={`w-4 h-4 transition-colors duration-300 ${
-                      isSearchFocused ? "text-emerald-400" : "text-zinc-400"
-                    }`}
+          <div
+            className={`w-full max-w-2xl min-w-72 transition-all duration-700 delay-200 ${
+              showAnimations
+                ? "translate-y-0 opacity-100"
+                : "translate-y-8 opacity-0"
+            }`}
+          >
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSearch();
+              }}
+              className={`px-3 relative flex flex-col justify-between sm:flex-row items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-2xl py-1.5 gap-2 transition-all duration-300 ${
+                isSearchFocused
+                  ? "border-emerald-400/50 shadow-md shadow-emerald-500/10"
+                  : "hover:border-zinc-600/50"
+              }`}
+            >
+              <div className="flex items-center w-full sm:w-auto flex-grow sm:flex-grow-0">
+                {/* Logo — now animated & interactive */}
+                <div
+                  className={`pr-2 transition-all duration-700 ${
+                    showAnimations
+                      ? "opacity-100 translate-x-0"
+                      : "opacity-0 -translate-x-4"
+                  }`}
+                >
+                  <img
+                    src="/favicon.ico"
+                    alt="SneakDex Logo"
+                    className="w-6 h-6 transition-transform duration-300 hover:scale-110 hover:drop-shadow-[0_0_6px_#34d399]"
                   />
                 </div>
 
-                {/* Input field */}
+                {/* Input */}
                 <input
                   type="text"
                   placeholder="Search for anything…"
-                  className="flex-grow px-2 py-4 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-lg"
+                  className="flex-grow px-2 py-2 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-sm sm:text-base"
                   value={searchQuery}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     setSearchQuery(e.target.value)
                   }
                   onFocus={() => setIsSearchFocused(true)}
                   onBlur={() => setIsSearchFocused(false)}
-                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                    if (e.key === "Enter") {
-                      handleSearch();
-                    }
-                  }}
                 />
-
-                {/* Search button with isolated hover */}
-                <button
-                  type="submit"
-                  onClick={handleSearch}
-                  className="relative justify-center cursor-pointer w-full px-8 py-4 text-white rounded-xl font-medium transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/25 active:scale-95 flex items-center gap-2 overflow-hidden group/button hover:brightness-110"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #065f46, #047857, #059669)",
-                  }}
-                >
-                  {/* Button content */}
-                  <span className="relative z-10">Search</span>
-                  <Zap className="w-4 h-4 relative z-10" />
-                </button>
               </div>
 
-              {/* Animated border glow */}
-              <div
-                className={`absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-2xl blur-xl transition-opacity duration-300 -z-10 ${
-                  isSearchFocused ? "opacity-100" : "opacity-0"
-                }`}
-              />
-            </div>
+              {/* Button */}
+              <button
+                type="submit"
+                className="relative cursor-pointer w-full sm:w-auto px-4 py-2 text-sm text-white rounded-lg font-medium transition-all duration-300 hover:scale-105 active:scale-95 flex items-center justify-center gap-1 hover:brightness-110"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #065f46, #047857, #059669)",
+                }}
+              >
+                <span>Search</span>
+              </button>
+            </form>
           </div>
 
           {/* Tabs */}
