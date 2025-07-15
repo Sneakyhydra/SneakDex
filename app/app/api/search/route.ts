@@ -236,11 +236,11 @@ async function searchPayloadOnly(
   filters?: Record<string, any>
 ): Promise<QdrantResult[]> {
   try {
-    // await ensurePayloadIndexes(qdrant, COLLECTION_NAME, [
-    //   { name: "title", schema: "keyword" },
-    //   { name: "description", schema: "keyword" },
-    //   { name: "text_snippet", schema: "keyword" },
-    // ]);
+    await ensurePayloadIndexes(qdrant, COLLECTION_NAME, [
+      { name: "title", schema: "keyword" },
+      { name: "description", schema: "keyword" },
+      { name: "text_snippet", schema: "keyword" },
+    ]);
 
     const textConditions: any[] = [
       { key: "title", match: { value: query } },

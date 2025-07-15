@@ -33,9 +33,6 @@ const embedCache = new Map<string, number[]>();
 const CACHE_CLEANUP_INTERVAL = 10 * 60 * 1000; // 10 minutes
 const MODEL_CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
-type Heading = { level: number; text: string };
-type Image = { src: string; alt?: string; title?: string };
-
 type QdrantImgPayload = {
   src?: string;
   alt?: string;
