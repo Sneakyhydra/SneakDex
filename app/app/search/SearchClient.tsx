@@ -26,6 +26,7 @@ type SearchResponse = {
     url?: string;
     title?: string;
   }>;
+  [key: string]: any;
 };
 
 const RESULTS_PER_PAGE = 15;

@@ -8,22 +8,30 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Heading = { level: number; text: string };
-
+type Image = { src: string; alt?: string; title?: string };
 type SearchResponse = {
   source: string;
   results: Array<{
     id: string | number;
-    score?: number;
+    hybridScore?: number;
+    qdrantScore?: number;
+    pgScore?: number;
     payload: {
       url?: string;
       title?: string;
       description?: string;
-      cleaned_text?: string;
-      word_count?: number;
       headings?: Heading[];
+      images?: Image[];
+      language?: string;
+      timestamp?: string;
+      content_type?: string;
+      text_snippet?: string;
       [key: string]: any;
     };
+    url?: string;
+    title?: string;
   }>;
+  [key: string]: any;
 };
 
 type SearchImgResponse = {
@@ -31,16 +39,19 @@ type SearchImgResponse = {
   results: Array<{
     id: string | number;
     score: number;
-    rank: number;
     payload: {
-      src: string;
+      src?: string;
       alt?: string;
       title?: string;
+      caption?: string;
       page_url?: string;
       page_title?: string;
-      caption?: string;
+      page_description?: string;
+      timestamp?: string;
+      [key: string]: any;
     };
   }>;
+  [key: string]: any;
 };
 
 const SearchPage = () => {
