@@ -85,13 +85,22 @@ class ModernIndexer:
 
         for i, doc in enumerate(documents):
             doc_id = self.generate_doc_id(doc.get("url", ""))
+            images = [
+                image
+                for image in doc.get("images", [])
+                if image.get("src") and image.get("src") != "about:blank"
+            ]
+
+            language_pg = doc.get("language")
+            if language_pg and language_pg == "chinese" and language_pg == "japanese":
+                language_pg = "simple"
 
             payload = {
                 "url": doc.get("url"),
                 "title": doc.get("title", ""),
                 "description": doc.get("description", ""),
                 "headings": doc.get("headings", [])[:3],
-                "images": doc.get("images", [])[:3],
+                "images": images[:3],
                 "language": doc.get("language"),
                 "timestamp": doc.get("timestamp"),
                 "content_type": doc.get("content_type"),
@@ -108,13 +117,11 @@ class ModernIndexer:
                 "id": doc_id,
                 "url": doc.get("url"),
                 "title": doc.get("title"),
-                "lang": doc.get("language"),
+                "lang": language_pg,
                 "_tmp_content": doc.get("cleaned_text", ""),
             }
 
-            imgs_to_embed = [
-                self.build_image_caption(img) for img in doc.get("images", [])
-            ]
+            imgs_to_embed = [self.build_image_caption(img) for img in images]
             if imgs_to_embed:
                 img_embeddings = self.model.encode(
                     imgs_to_embed, show_progress_bar=False
@@ -123,7 +130,7 @@ class ModernIndexer:
                 img_embeddings = []
 
             # index images
-            for j, img in enumerate(doc.get("images", [])):
+            for j, img in enumerate(images):
                 if not imgs_to_embed[j]:
                     continue  # skip empty captions
 

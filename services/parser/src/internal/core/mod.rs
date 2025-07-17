@@ -143,17 +143,19 @@ impl KafkaHandler {
                     tokio::spawn(async move {
                         if metrics_clone.pages_processed.load(Ordering::Relaxed) % 100 == 0 {
                             info!(
-                                "Metrics: processed={}, successful={}, failed={}, kafka_ok={}, kafka_fail={}, kafka_err={}",
-                                metrics_clone.pages_processed.load(Ordering::Relaxed),
-                                metrics_clone.pages_successful.load(Ordering::Relaxed),
-                                metrics_clone.pages_failed.load(Ordering::Relaxed),
-                                metrics_clone.kafka_successful.load(Ordering::Relaxed),
-                                metrics_clone.kafka_failed.load(Ordering::Relaxed),
-                                metrics_clone.kafka_errored.load(Ordering::Relaxed),
+                                "Metrics: inflight={}, processed={}, successful={}, failed={}, kafka_ok={}, kafka_fail={}, kafka_err={}",
+                                metrics_clone.get_inflight_pages(),
+                                metrics_clone.get_pages_processed(),
+                                metrics_clone.get_pages_successful(),
+                                metrics_clone.get_pages_failed(),
+                                metrics_clone.get_kafka_successful(),
+                                metrics_clone.get_kafka_failed(),
+                                metrics_clone.get_kafka_errored(),
                             );
                         }
 
                         metrics_clone.inc_pages_processed();
+                        metrics_clone.inc_inflight_pages();
 
                         if let Err(e) = KafkaHandler::process_message(
                             &owned_msg,
@@ -166,6 +168,7 @@ impl KafkaHandler {
                             metrics_clone.inc_pages_failed();
                         }
 
+                        metrics_clone.dec_inflight_pages();
                         drop(permit); // release the semaphore slot
                     });
                 }
@@ -221,7 +224,7 @@ impl KafkaHandler {
             }
             Err(e) => {
                 error!("Failed to parse HTML from {}: {}", url, e);
-                metrics.inc_pages_failed();
+                return Err(e);
             }
         }
 

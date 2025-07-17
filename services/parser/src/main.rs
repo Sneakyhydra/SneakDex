@@ -1,4 +1,4 @@
-//! Entry point for the parser service.
+//! Entry point for the SneakDex parser service.
 //!
 //! Initializes configuration, logging, Kafka client, and HTML parser,
 //! starts processing Kafka messages asynchronously, and supports graceful shutdown.
@@ -28,6 +28,10 @@ async fn run() -> Result<()> {
     // Load config from environment; fall back to defaults if missing.
     let config: Arc<Config> = Arc::new(envy::from_env().unwrap_or_default());
     config.init_logging();
+    if let Err(err) = config.validate() {
+        eprintln!("Configuration error: {}", err);
+        std::process::exit(1);
+    }
 
     // Initialize Kafka handler and HTML parser.
     let kafka_handler = Arc::new(KafkaHandler::new(Arc::clone(&config)).await?);

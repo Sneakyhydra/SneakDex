@@ -14,6 +14,7 @@ use crate::internal::core::KafkaHandler;
 /// Metrics shared across the service.
 #[derive(Debug, Clone)]
 pub struct Metrics {
+    pub inflight_pages: Arc<AtomicU64>,
     pub pages_processed: Arc<AtomicU64>,
     pub pages_successful: Arc<AtomicU64>,
     pub pages_failed: Arc<AtomicU64>,
@@ -27,6 +28,7 @@ pub struct Metrics {
 impl Metrics {
     pub fn new() -> Self {
         Self {
+            inflight_pages: Arc::new(AtomicU64::new(0)),
             pages_processed: Arc::new(AtomicU64::new(0)),
             pages_successful: Arc::new(AtomicU64::new(0)),
             pages_failed: Arc::new(AtomicU64::new(0)),
@@ -36,6 +38,14 @@ impl Metrics {
             last_message_time: Arc::new(tokio::sync::RwLock::new(None)),
             start_time: Instant::now(),
         }
+    }
+
+    pub fn inc_inflight_pages(&self) {
+        self.inflight_pages.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn dec_inflight_pages(&self) {
+        self.inflight_pages.fetch_sub(1, Ordering::Relaxed);
     }
 
     pub fn inc_pages_processed(&self) {
@@ -67,6 +77,43 @@ impl Metrics {
     pub fn inc_kafka_errored(&self) {
         self.kafka_errored.fetch_add(1, Ordering::Relaxed);
     }
+
+    pub fn get_inflight_pages(&self) -> u64 {
+        self.inflight_pages.load(Ordering::Relaxed)
+    }
+
+    pub fn get_pages_processed(&self) -> u64 {
+        self.pages_processed.load(Ordering::Relaxed)
+    }
+
+    pub fn get_pages_successful(&self) -> u64 {
+        self.pages_successful.load(Ordering::Relaxed)
+    }
+
+    pub fn get_pages_failed(&self) -> u64 {
+        self.pages_failed.load(Ordering::Relaxed)
+    }
+
+    pub fn get_kafka_successful(&self) -> u64 {
+        self.kafka_successful.load(Ordering::Relaxed)
+    }
+
+    pub fn get_kafka_failed(&self) -> u64 {
+        self.kafka_failed.load(Ordering::Relaxed)
+    }
+
+    pub fn get_kafka_errored(&self) -> u64 {
+        self.kafka_errored.load(Ordering::Relaxed)
+    }
+
+    pub fn get_uptime(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
+    }
+
+    pub async fn get_last_message_age(&self) -> Option<u64> {
+        let last_time = self.last_message_time.read().await;
+        last_time.map(|time| time.elapsed().as_secs())
+    }
 }
 
 /// Health check response.
@@ -74,6 +121,7 @@ impl Metrics {
 struct HealthResponse {
     status: String,
     uptime_seconds: u64,
+    inflight_pages: u64,
     pages_processed: u64,
     pages_failed: u64,
     kafka_errored: u64,
@@ -87,15 +135,13 @@ async fn health(
     metrics: web::Data<Metrics>,
     kafka: web::Data<Arc<KafkaHandler>>,
 ) -> impl Responder {
-    let uptime = metrics.start_time.elapsed().as_secs();
-    let pages_processed = metrics.pages_processed.load(Ordering::Relaxed);
-    let pages_failed = metrics.pages_failed.load(Ordering::Relaxed);
-    let kafka_errored = metrics.kafka_errored.load(Ordering::Relaxed);
+    let uptime = metrics.get_uptime();
+    let inflight_pages = metrics.get_inflight_pages();
+    let pages_processed = metrics.get_pages_processed();
+    let pages_failed = metrics.get_pages_failed();
+    let kafka_errored = metrics.get_kafka_errored();
 
-    let last_message_age = {
-        let last_time = metrics.last_message_time.read().await;
-        last_time.map(|time| time.elapsed().as_secs())
-    };
+    let last_message_age = metrics.get_last_message_age().await;
 
     let kafka_ok = kafka.is_connected().await;
 
@@ -106,6 +152,7 @@ async fn health(
             "not_healthy".to_string()
         },
         uptime_seconds: uptime,
+        inflight_pages,
         pages_processed,
         pages_failed,
         kafka_errored,
@@ -128,16 +175,19 @@ async fn live() -> impl Responder {
 /// Metrics endpoint (Prometheus-friendly).
 #[get("/metrics")]
 async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
-    let uptime = metrics.start_time.elapsed().as_secs();
-    let last_message_age = {
-        let last_time = metrics.last_message_time.read().await;
-        last_time
-            .map(|time| time.elapsed().as_secs() as i64)
-            .unwrap_or(-1)
-    };
+    let uptime = metrics.get_uptime();
+    let last_message_age = metrics
+        .get_last_message_age()
+        .await
+        .map(|v| v as i64)
+        .unwrap_or(-1);
 
     let metrics_text = format!(
-        "# HELP parser_pages_processed Total pages processed\n\
+        "# HELP inflight_pages Pages in processing\n\
+         # TYPE inflight_pages gauge\n\
+         inflight_pages {}\n\
+         \n\
+         # HELP parser_pages_processed Total pages processed\n\
          # TYPE parser_pages_processed counter\n\
          parser_pages_processed {}\n\
          \n\
@@ -168,12 +218,13 @@ async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
          # HELP parser_uptime_seconds Service uptime in seconds\n\
          # TYPE parser_uptime_seconds gauge\n\
          parser_uptime_seconds {}\n",
-        metrics.pages_processed.load(Ordering::Relaxed),
-        metrics.pages_successful.load(Ordering::Relaxed),
-        metrics.pages_failed.load(Ordering::Relaxed),
-        metrics.kafka_successful.load(Ordering::Relaxed),
-        metrics.kafka_failed.load(Ordering::Relaxed),
-        metrics.kafka_errored.load(Ordering::Relaxed),
+        metrics.get_inflight_pages(),
+        metrics.get_pages_processed(),
+        metrics.get_pages_successful(),
+        metrics.get_pages_failed(),
+        metrics.get_kafka_successful(),
+        metrics.get_kafka_failed(),
+        metrics.get_kafka_errored(),
         last_message_age,
         uptime,
     );

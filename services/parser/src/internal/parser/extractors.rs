@@ -172,3 +172,50 @@ pub fn extract_main_content(document: &Html, base_url: &str) -> String {
 
     String::new()
 }
+
+/// Extracts the `<title>` tag.
+pub fn extract_title(document: &Html) -> String {
+    static TITLE_SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("title").unwrap());
+
+    document
+        .select(&TITLE_SELECTOR)
+        .next()
+        .map(|e| clean_text(&e.inner_html()))
+        .unwrap_or_else(|| "No Title".to_string())
+}
+
+/// Extracts `<meta name="description">`.
+pub fn extract_meta_description(document: &Html) -> Option<String> {
+    static DESC_SELECTOR: Lazy<Selector> =
+        Lazy::new(|| Selector::parse("meta[name='description']").unwrap());
+
+    document
+        .select(&DESC_SELECTOR)
+        .next()
+        .and_then(|e| e.value().attr("content"))
+        .map(clean_text)
+}
+
+/// Extracts `<meta name="keywords">`.
+pub fn extract_meta_keywords(document: &Html) -> Option<String> {
+    static KEYWORDS_SELECTOR: Lazy<Selector> =
+        Lazy::new(|| Selector::parse("meta[name='keywords']").unwrap());
+
+    document
+        .select(&KEYWORDS_SELECTOR)
+        .next()
+        .and_then(|e| e.value().attr("content"))
+        .map(clean_text)
+}
+
+/// Extracts `<link rel="canonical">`.
+pub fn extract_canonical_url(document: &Html) -> Option<String> {
+    static CANONICAL_SELECTOR: Lazy<Selector> =
+        Lazy::new(|| Selector::parse("link[rel='canonical']").unwrap());
+
+    document
+        .select(&CANONICAL_SELECTOR)
+        .next()
+        .and_then(|e| e.value().attr("href"))
+        .map(|href| href.to_string())
+}
