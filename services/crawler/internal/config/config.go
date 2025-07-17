@@ -18,7 +18,6 @@
 //	if err != nil {
 //	    log.Fatalf("Configuration error: %v", err)
 //	}
-//	// cfg now contains validated configuration ready for use
 package config
 
 import (

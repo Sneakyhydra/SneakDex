@@ -5,13 +5,12 @@ networks:
     driver: bridge
 
 volumes:
-  grafana-prod-data:
+  grafana-data:
   kafka-data:
-  prometheus-prod-data:
+  prometheus-data:
   redis-data:
 
 services:
-
   kafka:
     image: bitnami/kafka:4.0.0
     container_name: sneakdex-kafka
@@ -32,30 +31,36 @@ services:
       - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=10485760
       - KAFKA_ENABLE_KRAFT=yes
       - KAFKA_CFG_JMX_PORT=9999
-    volumes:
-      - kafka-data:/bitnami/kafka
     networks:
-      - monitoring
       - sneakdex-network
     healthcheck:
-      test:
-        ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 60s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7
     container_name: sneakdex-redis
     ports:
       - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
-      - monitoring
       - sneakdex-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -64,115 +69,160 @@ services:
       retries: 5
       start_period: 15s
     restart: unless-stopped
-
-  crawler-prod:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  
+  crawler:
     build:
       context: ./services/crawler
       dockerfile: Dockerfile.prod
-    environment:
-      - CRAWL_DEPTH=3
-      - ENABLE_DEBUG=false
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_RETRY_MAX=3
-      - KAFKA_TOPIC_HTML=raw-html
-      - LOG_LEVEL=info
-      - MAX_CONCURRENCY=32
-      - MAX_CONTENT_SIZE=10485760
-      - MAX_PAGES=10000
-      - MONITOR_PORT=8080
-      - REDIS_DB=0
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REQUEST_DELAY=50ms
-      - REQUEST_TIMEOUT=10s
-      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
-      - USER_AGENT=SneakDex/1.0
+    env_file:
+      - ./services/crawler/.env.production
     depends_on:
       kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
-      parser-prod:
+      parser:
         condition: service_healthy
     networks:
-      - monitoring
-      - sneakdex-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-
-  parser-prod:
-    build:
-      context: ./services/parser
-      dockerfile: Dockerfile.prod
-    environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_GROUP_ID=parser-group
-      - KAFKA_TOPIC_HTML=raw-html
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - MAX_CONCURRENCY=128
-      - MAX_CONTENT_LENGTH=5242880
-      - MIN_CONTENT_LENGTH=1024
-      - MONITOR_PORT=8080
-      - RUST_LOG=info
-    depends_on:
-      kafka:
-        condition: service_healthy
-      indexer-prod:
-        condition: service_started
-    networks:
-      - monitoring
-      - sneakdex-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-
-  indexer-prod:
-    build:
-      context: ./services/indexer
-      dockerfile: Dockerfile.prod
-    environment:
-      - BATCH_SIZE=100
-      - INDEX_SAVE_INTERVAL=10000
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_GROUP_ID=indexer-group-prod
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - MAX_DOCS=50000
-      - MAX_FEATURES=500000
-      - MONITOR_PORT=8080
-      - NUM_CONSUMER_THREADS=4
-      - NUM_WORKER_THREADS=8
-      - PREPROCESSING_WORKERS=6
-      - PYTHON_ENV=production
-      - TF_IDF_MIN_DF=5
-      - LOG_LEVEL=INFO
-      - PYTHONUNBUFFERED=1
-      - PYTHONDONTWRITEBYTECODE=1
-    ports:
-      - "8080"  # Don't expose publicly, use through load balancer
-    depends_on:
-      kafka:
-        condition: service_healthy
-      app-prod:
-        condition: service_started
-    networks:
-      - monitoring
       - sneakdex-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 10s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.sneakdex.service=crawler"
+      - "com.sneakdex.environment=production"
+
+  parser:
+    build:
+      context: ./services/parser
+      dockerfile: Dockerfile.prod
+    env_file:
+      - ./services/parser/.env.production
+    depends_on:
+      kafka:
+        condition: service_healthy
+      indexer:
+        condition: service_healthy
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.sneakdex.service=parser"
+      - "com.sneakdex.environment=production"
+
+  indexer:
+    build:
+      context: ./services/indexer
+      dockerfile: Dockerfile.prod
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHON_ENV=production
+    env_file:
+      - ./services/indexer/.env.production
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - sneakdex-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.sneakdex.service=indexer"
+      - "com.sneakdex.environment=production"
 
   app-prod:
     build:
@@ -227,14 +277,14 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  prometheus-prod:
+  prometheus:
     image: prom/prometheus:latest
-    container_name: prometheus-prod
+    container_name: prometheus
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prod/prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml
-      - prometheus-prod-data:/prometheus
+      - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -251,20 +301,20 @@ services:
       retries: 3
     restart: unless-stopped
 
-  grafana-prod:
+  grafana:
     image: grafana/grafana:latest
-    container_name: grafana-prod
+    container_name: grafana
     ports:
       - "4000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=sneaky
     volumes:
-      - grafana-prod-data:/var/lib/grafana
+      - grafana-data:/var/lib/grafana
       - ./monitoring/prod/grafana/provisioning:/etc/grafana/provisioning
       - ./monitoring/prod/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
-      prometheus-prod:
+      prometheus:
         condition: service_healthy
     networks:
       - monitoring

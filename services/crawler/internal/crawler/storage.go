@@ -29,9 +29,6 @@ func (c *Crawler) AddToPending(item QueueItem) {
 		return
 	}
 
-	// Mark as pending locally
-	c.Pending.Store(item.URL, struct{}{})
-
 	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel()
 
@@ -42,6 +39,9 @@ func (c *Crawler) AddToPending(item QueueItem) {
 		c.Stats.IncrementRedisErrored()
 		return
 	}
+
+	// Mark as pending locally
+	c.Pending.Store(item.URL, struct{}{})
 
 	// Only push to queue if it wasn't already in the set
 	if added == 1 {
@@ -64,6 +64,8 @@ func (c *Crawler) AddToPending(item QueueItem) {
 			ctx3, cancel3 := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 			defer cancel3()
 			_ = c.RedisClient.SRem(ctx3, "crawler:pending_urls_set", item.URL).Err()
+			c.Pending.Delete(item.URL)
+			return
 		}
 	}
 }
@@ -74,8 +76,7 @@ func (c *Crawler) RemoveFromPending() (*QueueItem, error) {
 	defer cancel()
 
 	// Try each depth level starting from 0
-	// You might want to make maxDepth configurable
-	maxDepth := 10 // Adjust based on your crawling needs
+	maxDepth := c.Cfg.CrawlDepth
 
 	for depth := 0; depth <= maxDepth; depth++ {
 		queueKey := c.getQueueKey(depth)
@@ -122,7 +123,7 @@ func (c *Crawler) GetQueueStats() map[int]int64 {
 	defer cancel()
 
 	stats := make(map[int]int64)
-	maxDepth := 10 // Should match the maxDepth in RemoveFromPending
+	maxDepth := c.Cfg.CrawlDepth // Should match the maxDepth in RemoveFromPending
 
 	for depth := 0; depth <= maxDepth; depth++ {
 		queueKey := c.getQueueKey(depth)
@@ -144,7 +145,7 @@ func (c *Crawler) CleanupEmptyQueues() {
 	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel()
 
-	maxDepth := 10 // Should match the maxDepth in RemoveFromPending
+	maxDepth := c.Cfg.CrawlDepth // Should match the maxDepth in RemoveFromPending
 
 	for depth := 0; depth <= maxDepth; depth++ {
 		queueKey := c.getQueueKey(depth)
@@ -204,8 +205,6 @@ func (c *Crawler) preloadLocalCaches() {
 	c.Log.Info("Local cache preloading completed")
 }
 
-// Additional helper functions for the rest of your existing code...
-
 func (c *Crawler) initializeRedis() error {
 	redisAddr := fmt.Sprintf("%s:%d", c.Cfg.RedisHost, c.Cfg.RedisPort)
 
@@ -243,35 +242,24 @@ func (c *Crawler) initializeRedis() error {
 }
 
 func (c *Crawler) isURLSeen(url string) (bool, error) {
-	// Check comprehensive local cache first
+	// Check local cache first
 	if _, exists := c.Seen.Load(url); exists {
 		return true, nil
 	}
-	c.Seen.Store(url, struct{}{})
 
-	// For URLs not in local cache, do a quick Redis check (but only once per URL)
 	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel()
 
-	// Use pipeline to check both sets in a single round trip
-	pipe := c.RedisClient.Pipeline()
-	visitedCmd := pipe.SIsMember(ctx, "crawler:visited_urls", url)
-	pendingCmd := pipe.SIsMember(ctx, "crawler:pending_urls_set", url)
+	key := fmt.Sprintf("crawler:visited:%s", url)
 
-	_, err := pipe.Exec(ctx)
+	exists, err := c.RedisClient.Exists(ctx, key).Result()
 	if err != nil {
+		c.Log.WithField("url", url).WithError(err).Error("Failed to check visited key")
 		c.Stats.IncrementRedisErrored()
-		return false, nil
+		return false, err
 	}
 
-	visited, err := visitedCmd.Result()
-	if err == nil && visited {
-		c.Stats.IncrementRedisSuccessful()
-		return true, nil
-	}
-
-	pending, err := pendingCmd.Result()
-	if err == nil && pending {
+	if exists > 0 {
 		c.Stats.IncrementRedisSuccessful()
 		return true, nil
 	}
@@ -303,9 +291,13 @@ func (c *Crawler) MarkVisited(url string) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.Cfg.RedisTimeout)
 	defer cancel()
 
-	if err := c.RedisClient.SAdd(ctx, "crawler:visited_urls", url).Err(); err != nil {
-		c.Log.WithField("url", url).WithError(err).Error("Failed to add to visited_urls")
+	key := fmt.Sprintf("crawler:visited:%s", url)
+	ttl := 24 * time.Hour // or make configurable
+
+	if err := c.RedisClient.Set(ctx, key, "1", ttl).Err(); err != nil {
+		c.Log.WithField("url", url).WithError(err).Error("Failed to mark visited with TTL")
 		c.Stats.IncrementRedisErrored()
+		return
 	}
 
 	c.Seen.Store(url, struct{}{})

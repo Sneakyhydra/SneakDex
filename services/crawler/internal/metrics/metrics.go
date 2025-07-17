@@ -22,7 +22,6 @@ package metrics
 
 import (
 	// StdLib
-	"sync/atomic"
 	"time"
 
 	// Third-party
@@ -31,6 +30,7 @@ import (
 
 // Metrics holds counters for crawler performance statistics.
 type Metrics struct {
+	InflightPages   int64 // Number of pages currently being processed.
 	PagesProcessed  int64 // Total number of pages processed in the HTMLHandler.
 	PagesSuccessful int64 // Number of pages processed successfully.
 	PagesFailed     int64 // Number of pages that failed to process.
@@ -44,6 +44,8 @@ type Metrics struct {
 	startTime time.Time // startTime records the time when the Metrics instance was created.
 
 	// Prometheus metrics
+	inflightPagesGauge prometheus.Gauge
+
 	pagesProcessedGauge  prometheus.Gauge
 	pagesSuccessfulGauge prometheus.Gauge
 	pagesFailedGauge     prometheus.Gauge
@@ -64,6 +66,10 @@ func NewMetrics() *Metrics {
 	m := &Metrics{
 		startTime: time.Now(),
 
+		inflightPagesGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "inflight_pages",
+			Help: "Number of pages currently being processed",
+		}),
 		pagesProcessedGauge: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "pages_processed_total",
 			Help: "Total number of pages processed",
@@ -108,6 +114,7 @@ func NewMetrics() *Metrics {
 
 	// Register all metrics
 	prometheus.MustRegister(
+		m.inflightPagesGauge,
 		m.pagesProcessedGauge,
 		m.pagesSuccessfulGauge,
 		m.pagesFailedGauge,
@@ -123,41 +130,44 @@ func NewMetrics() *Metrics {
 	return m
 }
 
-// Uptime returns the time elapsed since the Metrics was initialized.
-func (m *Metrics) Uptime() time.Duration {
-	return time.Since(m.startTime)
+// Uptime returns the time elapsed in seconds since the Metrics was initialized.
+func (m *Metrics) Uptime() float64 {
+	return time.Since(m.startTime).Seconds()
 }
 
 // GetStats returns a snapshot of crawler metrics in a map format.
 func (m *Metrics) GetStats() map[string]any {
 	return map[string]any{
-		"pages_processed":  atomic.LoadInt64(&m.PagesProcessed),
-		"pages_successful": atomic.LoadInt64(&m.PagesSuccessful),
-		"pages_failed":     atomic.LoadInt64(&m.PagesFailed),
-		"kafka_successful": atomic.LoadInt64(&m.KafkaSuccessful),
-		"kafka_failed":     atomic.LoadInt64(&m.KafkaFailed),
-		"kafka_errored":    atomic.LoadInt64(&m.KafkaErrored),
-		"redis_successful": atomic.LoadInt64(&m.RedisSuccessful),
-		"redis_failed":     atomic.LoadInt64(&m.RedisFailed),
-		"redis_errored":    atomic.LoadInt64(&m.RedisErrored),
-		"uptime_seconds":   m.Uptime().Seconds(),
+		"inflight_pages":   m.GetInflightPages(),
+		"pages_processed":  m.GetPagesProcessed(),
+		"pages_successful": m.GetPagesSuccessful(),
+		"pages_failed":     m.GetPagesFailed(),
+		"kafka_successful": m.GetKafkaSuccessful(),
+		"kafka_failed":     m.GetKafkaFailed(),
+		"kafka_errored":    m.GetKafkaErrored(),
+		"redis_successful": m.GetRedisSuccessful(),
+		"redis_failed":     m.GetRedisFailed(),
+		"redis_errored":    m.GetRedisErrored(),
+		"uptime_seconds":   m.Uptime(),
 	}
 }
 
 // SyncPrometheusMetrics updates the Prometheus gauges with the current metrics values.
 // This function should be called periodically to ensure that Prometheus metrics are up-to-date.
 func (m *Metrics) SyncPrometheusMetrics() {
-	m.pagesProcessedGauge.Set(float64(atomic.LoadInt64(&m.PagesProcessed)))
-	m.pagesSuccessfulGauge.Set(float64(atomic.LoadInt64(&m.PagesSuccessful)))
-	m.pagesFailedGauge.Set(float64(atomic.LoadInt64(&m.PagesFailed)))
+	m.inflightPagesGauge.Set(float64(m.GetInflightPages()))
 
-	m.kafkaSuccessfulGauge.Set(float64(atomic.LoadInt64(&m.KafkaSuccessful)))
-	m.kafkaFailedGauge.Set(float64(atomic.LoadInt64(&m.KafkaFailed)))
-	m.kafkaErroredGauge.Set(float64(atomic.LoadInt64(&m.KafkaErrored)))
+	m.pagesProcessedGauge.Set(float64(m.GetPagesProcessed()))
+	m.pagesSuccessfulGauge.Set(float64(m.GetPagesSuccessful()))
+	m.pagesFailedGauge.Set(float64(m.GetPagesFailed()))
 
-	m.redisSuccessfulGauge.Set(float64(atomic.LoadInt64(&m.RedisSuccessful)))
-	m.redisFailedGauge.Set(float64(atomic.LoadInt64(&m.RedisFailed)))
-	m.redisErroredGauge.Set(float64(atomic.LoadInt64(&m.RedisErrored)))
+	m.kafkaSuccessfulGauge.Set(float64(m.GetKafkaSuccessful()))
+	m.kafkaFailedGauge.Set(float64(m.GetKafkaFailed()))
+	m.kafkaErroredGauge.Set(float64(m.GetKafkaErrored()))
 
-	m.uptimeGauge.Set(m.Uptime().Seconds())
+	m.redisSuccessfulGauge.Set(float64(m.GetRedisSuccessful()))
+	m.redisFailedGauge.Set(float64(m.GetRedisFailed()))
+	m.redisErroredGauge.Set(float64(m.GetRedisErrored()))
+
+	m.uptimeGauge.Set(m.Uptime())
 }

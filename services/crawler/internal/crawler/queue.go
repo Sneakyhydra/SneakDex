@@ -2,7 +2,6 @@ package crawler
 
 import (
 	// Stdlib
-	"sync/atomic"
 	"time"
 
 	// Third-party
@@ -32,14 +31,14 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan c
 			return
 		case <-ticker.C:
 			// Check if page processing limit is reached
-			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
+			if c.Stats.GetPagesProcessed() >= c.Cfg.MaxPages {
 				c.Log.Info("Max page limit reached, stopping Redis queue feeder")
 				return
 			}
 
 			// Check concurrency limits before processing
-			if c.GetInFlightPages() >= int64(c.Cfg.MaxConcurrency) {
-				time.Sleep(5 * time.Millisecond) // Brief pause if at capacity
+			if c.Stats.GetInflightPages() >= int64(c.Cfg.MaxConcurrency) {
+				time.Sleep(20 * time.Millisecond) // Brief pause if at capacity
 				continue
 			}
 
@@ -50,7 +49,7 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan c
 
 				// Stop if queue is empty for prolonged checks and no active work remains
 				if emptyQueueChecks >= maxEmptyChecks {
-					if c.GetInFlightPages() == 0 {
+					if c.Stats.GetInflightPages() == 0 {
 						c.Log.Info("Queue is consistently empty and no pages being processed. Exiting feeder.")
 						return
 					}

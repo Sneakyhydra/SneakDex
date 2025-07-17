@@ -50,12 +50,11 @@ type Crawler struct {
 	Stats         *metrics.Metrics        // Metrics collector for tracking crawling statistics.
 	UrlValidator  *validator.URLValidator // URL validator for checking and normalizing URLs.
 
-	Whitelist     []string // List of URL patterns allowed for crawling.
-	Blacklist     []string // List of URL patterns disallowed for crawling.
-	Seen          sync.Map // Local cache for any URL we've seen (visited, pending, or rejected).
-	Requeued      sync.Map // A concurrent map to keep track of URLs that have been re-queued due to transient errors.
-	Pending       sync.Map // Local cache for pending URLs to avoid Redis checks.
-	InFlightPages int64    // Track pages currently being processed.
+	Whitelist []string // List of URL patterns allowed for crawling.
+	Blacklist []string // List of URL patterns disallowed for crawling.
+	Seen      sync.Map // Local cache for any URL we've seen (visited, pending, or rejected).
+	Requeued  sync.Map // A concurrent map to keep track of URLs that have been re-queued due to transient errors.
+	Pending   sync.Map // Local cache for pending URLs to avoid Redis checks.
 
 	Ctx           context.Context
 	CtxCancel     context.CancelFunc // Function to cancel the context, used for graceful shutdown.
@@ -152,8 +151,8 @@ func (c *Crawler) Start() error {
 		},
 		"crawling_behavior": logrus.Fields{
 			"start_urls":    c.Cfg.StartURLs,
-			"max_pages":     c.Cfg.MaxPages,
 			"crawl_depth":   c.Cfg.CrawlDepth,
+			"max_pages":     c.Cfg.MaxPages,
 			"url_whitelist": c.Cfg.URLWhitelist,
 			"url_blacklist": c.Cfg.URLBlacklist,
 		},
@@ -235,11 +234,24 @@ func (c *Crawler) Start() error {
 
 	// Log final statistics before exiting.
 	finalStats := c.Stats.GetStats()
+	pagesPerSecond := float64(0)
+	if uptime := finalStats["uptime_seconds"].(float64); uptime > 0 {
+		pagesPerSecond = float64(finalStats["pages_processed"].(int64)) / uptime
+	}
+
 	c.Log.WithFields(logrus.Fields{
+		"inflight_pages":   finalStats["inflight_pages"],
 		"pages_processed":  finalStats["pages_processed"],
 		"pages_successful": finalStats["pages_successful"],
 		"pages_failed":     finalStats["pages_failed"],
-		"duration_seconds": fmt.Sprintf("%.2f", finalStats["uptime_seconds"].(float64)),
+		"kafka_successful": finalStats["kafka_successful"],
+		"kafka_failed":     finalStats["kafka_failed"],
+		"kafka_errored":    finalStats["kafka_errored"],
+		"redis_successful": finalStats["redis_successful"],
+		"redis_failed":     finalStats["redis_failed"],
+		"redis_errored":    finalStats["redis_errored"],
+		"uptime_seconds":   fmt.Sprintf("%.2f", finalStats["uptime_seconds"].(float64)),
+		"pages_per_second": fmt.Sprintf("%.2f", pagesPerSecond),
 	}).Info("Crawling process summary")
 
 	return nil
@@ -318,6 +330,7 @@ func (c *Crawler) logMetricsPeriodically() {
 				}
 
 				c.Log.WithFields(logrus.Fields{
+					"inflight_pages":   stats["inflight_pages"],
 					"pages_processed":  stats["pages_processed"],
 					"pages_successful": stats["pages_successful"],
 					"pages_failed":     stats["pages_failed"],
@@ -329,7 +342,6 @@ func (c *Crawler) logMetricsPeriodically() {
 					"redis_errored":    stats["redis_errored"],
 					"uptime_seconds":   fmt.Sprintf("%.2f", stats["uptime_seconds"].(float64)),
 					"pages_per_second": fmt.Sprintf("%.2f", pagesPerSecond),
-					"inflight_pages":   c.GetInFlightPages(),
 				}).Info("Current crawler metrics")
 			case <-c.CShutdown: // Exit loop if shutdown signal is received.
 				c.Log.Info("Stopping periodic metrics logging goroutine.")

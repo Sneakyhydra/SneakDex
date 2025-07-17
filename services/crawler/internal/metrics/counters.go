@@ -5,6 +5,12 @@ import (
 	"sync/atomic"
 )
 
+// Increment number of inflight pages.
+func (m *Metrics) IncrementInflightPages() { atomic.AddInt64(&m.InflightPages, 1) }
+
+// Decrement number of inflight pages.
+func (m *Metrics) DecrementInflightPages() { atomic.AddInt64(&m.InflightPages, -1) }
+
 // Increment total number of pages processed by the crawler.
 func (m *Metrics) IncrementPagesProcessed() { atomic.AddInt64(&m.PagesProcessed, 1) }
 

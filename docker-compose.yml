@@ -9,9 +9,12 @@ volumes:
   kafka-data:
   prometheus-data:
   redis-data:
+  go-mod-cache:
+  cargo-registry:
+  cargo-git:
+  target-cache:
 
 services:
-
   kafka:
     image: bitnami/kafka:4.0.0
     container_name: sneakdex-kafka
@@ -35,8 +38,8 @@ services:
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
-      - monitoring
       - sneakdex-network
+      - monitoring
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 10s
@@ -52,10 +55,10 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     networks:
-      - monitoring
       - sneakdex-network
+      - monitoring
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -68,106 +71,76 @@ services:
     build:
       context: ./services/crawler
     init: true
-    environment:
-      - CRAWL_DEPTH=3
-      - ENABLE_DEBUG=false
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_RETRY_MAX=3
-      - KAFKA_TOPIC_HTML=raw-html
-      - LOG_LEVEL=info
-      - MAX_CONCURRENCY=16
-      - MAX_CONTENT_SIZE=10485760
-      - MAX_PAGES=10000
-      - MONITOR_PORT=8080
-      - REDIS_DB=0
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REQUEST_DELAY=50ms
-      - REQUEST_TIMEOUT=10s
-      - START_URLS=https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com,https://www.dhruvrishishwar.com
-      - USER_AGENT=SneakDex/1.0
+    env_file:
+      - ./services/crawler/.env
     volumes:
       - ./services/crawler:/app
+      - go-mod-cache:/go/pkg/mod
     depends_on:
       kafka:
         condition: service_healthy
       redis:
         condition: service_healthy
     networks:
-      - monitoring
       - sneakdex-network
+      - monitoring
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 10s
     restart: unless-stopped
 
   parser:
     build:
       context: ./services/parser
-    environment:
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_GROUP_ID=parser-group
-      - KAFKA_TOPIC_HTML=raw-html
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - MAX_CONCURRENCY=64
-      - MAX_CONTENT_LENGTH=5242880
-      - MIN_CONTENT_LENGTH=1024
-      - MONITOR_PORT=8080
-      - RUST_LOG=info
+    env_file:
+      - ./services/parser/.env
     volumes:
       - ./services/parser:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/app/target
+    working_dir: /app
     depends_on:
       kafka:
         condition: service_healthy
-      crawler:
-        condition: service_started
     networks:
-      - monitoring
       - sneakdex-network
+      - monitoring
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 10s
     restart: unless-stopped
 
   indexer:
     build:
       context: ./services/indexer
     environment:
-      - BATCH_SIZE=50
-      - INDEX_SAVE_INTERVAL=5000
-      - KAFKA_BROKERS=kafka:9092
-      - KAFKA_GROUP_ID=indexer-group
-      - KAFKA_TOPIC_PARSED=parsed-pages
-      - MAX_DOCS=10000
-      - MAX_FEATURES=100000
-      - MONITOR_PORT=8080
-      - NUM_CONSUMER_THREADS=2
-      - NUM_WORKER_THREADS=4
-      - PREPROCESSING_WORKERS=4
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
       - PYTHON_ENV=development
-      - TF_IDF_MIN_DF=2
+    env_file:
+      - ./services/indexer/.env
     volumes:
       - ./services/indexer:/app
+    working_dir: /app
     depends_on:
       kafka:
         condition: service_healthy
-      parser:
-        condition: service_started
     networks:
-      - monitoring
       - sneakdex-network
+      - monitoring
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 10s
     restart: unless-stopped
 
   app:

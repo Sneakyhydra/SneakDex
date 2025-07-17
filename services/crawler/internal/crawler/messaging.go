@@ -165,7 +165,16 @@ func (c *Crawler) startAsyncProducerHandlers() {
 					strings.Contains(err.Err.Error(), "no such host") ||
 					strings.Contains(err.Err.Error(), "timeout") {
 					c.Stats.IncrementKafkaErrored()
-					c.AddToPending(item)
+
+					if exists, err := c.isURLRequeued(item.URL); exists {
+						c.Log.WithFields(logrus.Fields{"url": item.URL}).Trace("URL already requeued once. Will be marked as visited")
+						c.RemoveFromRequeued(item.URL)
+					} else {
+						// Re-queue URL instead of marking as visited
+						c.Log.WithFields(logrus.Fields{"url": item.URL, "error": err}).Warn("Retriable error occurred, requeuing URL")
+						c.AddToPending(item)
+						c.AddToRequeued(item.URL)
+					}
 				} else {
 					c.Stats.IncrementKafkaFailed()
 				}

@@ -4,7 +4,6 @@ import (
 	// StdLib
 	"path"
 	"strings"
-	"sync/atomic"
 
 	// Third-party
 	"github.com/gocolly/colly/v2"
@@ -67,19 +66,6 @@ func (c *Crawler) setRequestHandler(collector *colly.Collector) {
 			r.Abort()
 			return
 		default:
-			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
-				c.Log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Skipping due to MaxPages limit")
-				select {
-				case <-c.Ctx.Done():
-					c.Log.Debug("Context done, stopping further requests")
-				default:
-					c.CtxCancel() // Cancel the context to stop further requests
-					c.Log.Debug("Context cancelled due to MaxPages limit")
-				}
-				r.Abort()
-				return
-			}
-
 			ext := strings.ToLower(path.Ext(r.URL.Path))
 			if _, skip := skipExts[ext]; skip {
 				c.Log.WithFields(logrus.Fields{"url": r.URL.String(), "ext": ext}).Debug("Skipping URL due to file extension")
@@ -95,7 +81,7 @@ func (c *Crawler) setRequestHandler(collector *colly.Collector) {
 			r.Headers.Set("Keep-Alive", "timeout=30, max=100")
 			r.Headers.Set("Upgrade-Insecure-Requests", "1")
 
-			c.IncrementInFlightPages()
+			c.Stats.IncrementInflightPages()
 			c.Log.WithFields(logrus.Fields{"url": r.URL.String()}).Debug("Visiting URL")
 		}
 	})
@@ -109,10 +95,6 @@ func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 			c.Log.WithFields(logrus.Fields{"url": e.Request.URL.String()}).Debug("Link processing skipped due to shutdown")
 			return
 		default:
-			if atomic.LoadInt64(&c.Stats.PagesProcessed) >= c.Cfg.MaxPages {
-				return
-			}
-
 			link := e.Attr("href")
 			// Fast rejection filters
 			if link == "" || len(link) > 2000 {
@@ -163,7 +145,7 @@ func (c *Crawler) setLinkHandler(collector *colly.Collector) {
 // setErrorHandler allows us to handle errors gracefully.
 func (c *Crawler) setErrorHandler(collector *colly.Collector) {
 	collector.OnError(func(r *colly.Response, err error) {
-		defer c.DecrementInFlightPages()
+		defer c.Stats.DecrementInflightPages()
 		defer c.Stats.IncrementPagesFailed()
 		isNetworkError := strings.Contains(err.Error(), "timeout") ||
 			strings.Contains(err.Error(), "connection refused") ||
@@ -190,7 +172,7 @@ func (c *Crawler) setErrorHandler(collector *colly.Collector) {
 // setResponseHandler allows us to process the response of a request and send it to kafka.
 func (c *Crawler) setResponseHandler(collector *colly.Collector) {
 	collector.OnResponse(func(r *colly.Response) {
-		defer c.DecrementInFlightPages()
+		defer c.Stats.DecrementInflightPages()
 		// extract depth from context
 		depthAny := r.Request.Ctx.GetAny("depth")
 		depth, ok := depthAny.(int)
