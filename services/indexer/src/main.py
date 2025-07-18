@@ -11,7 +11,7 @@ from rich.logging import RichHandler
 from src.orchestrator import ModernIndexer
 from src.config import IndexerConfig
 from src.consumer import run_consumer
-from src.monitor import start_monitor_server, MESSAGES_CONSUMED
+from src.monitor import start_monitor_server
 
 console = Console()
 

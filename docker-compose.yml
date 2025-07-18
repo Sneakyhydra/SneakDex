@@ -39,7 +39,6 @@ services:
       - kafka-data:/bitnami/kafka
     networks:
       - sneakdex-network
-      - monitoring
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 10s
@@ -58,7 +57,6 @@ services:
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     networks:
       - sneakdex-network
-      - monitoring
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -87,9 +85,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
 
   parser:
@@ -112,9 +110,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
 
   indexer:
@@ -138,9 +136,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
 
   app:
@@ -164,8 +162,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   kafka-exporter:
@@ -177,6 +175,7 @@ services:
       - "--kafka.server=kafka:9092"
       - "--web.listen-address=:9308"
     networks:
+      - sneakdex-network
       - monitoring
     depends_on:
       kafka:
@@ -191,6 +190,7 @@ services:
     command:
       - "--redis.addr=redis://redis:6379"
     networks:
+      - sneakdex-network
       - monitoring
     depends_on:
       redis:
@@ -218,7 +218,8 @@ services:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
       interval: 10s
       timeout: 5s
-      start_period: 30s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   grafana:

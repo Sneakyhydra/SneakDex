@@ -389,8 +389,8 @@ export async function POST(req: Request) {
 
     // Determine weights based on query characteristics
     const finalWeights = {
-      qdrant: cleanQuery.split(" ").length >= 3 ? 0.7 : 0.3,
-      pg: cleanQuery.split(" ").length >= 3 ? 0.3 : 0.7,
+      qdrant: 0.75,
+      pg: 0.25,
     };
 
     let qdrantResults: QdrantResult[] = [];

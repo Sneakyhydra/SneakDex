@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 class ModernIndexer:
-    def __init__(self, config: IndexerConfig, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, config: IndexerConfig, model_name: str = "all-MiniLM-L12-v2"):
         self.config = config
         self.collection_name = config.collection_name
         self.collection_name_images = config.collection_name_images

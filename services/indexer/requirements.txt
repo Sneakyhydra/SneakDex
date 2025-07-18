@@ -8,7 +8,7 @@ supabase==2.16.0
 aiohttp==3.12.14
 prometheus-client==0.22.1
 
-# CPU-only PyTorch (install first)
+# CPU-only (Save space if nvidia cuda supported gpu not available) PyTorch (install first)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
 torchvision>=0.15.0

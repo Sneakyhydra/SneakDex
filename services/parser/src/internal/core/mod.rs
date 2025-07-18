@@ -89,8 +89,9 @@ impl KafkaHandler {
     pub async fn start_processing(
         &self,
         parser: HtmlParser,
-        metrics: Metrics,
+        metrics: Arc<Metrics>,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
+        shutdown_tx: tokio::sync::watch::Sender<bool>,
     ) -> anyhow::Result<()> {
         let semaphore = Arc::new(Semaphore::new(self.config.max_concurrency));
 
@@ -103,6 +104,7 @@ impl KafkaHandler {
             tokio::select! {
                 // watch for shutdown
                 res = shutdown.changed() => {
+                    let _ = shutdown_tx.send(true);
                     if res.is_ok() {
                         info!("Shutdown signal received, stopping Kafka processing loop.");
                         sleep(Duration::from_secs(10)).await;
@@ -186,7 +188,7 @@ impl KafkaHandler {
     async fn process_message(
         message: &rdkafka::message::OwnedMessage,
         parser: &HtmlParser,
-        metrics: &Metrics,
+        metrics: &Arc<Metrics>,
         producer: &FutureProducer,
         config: Arc<Config>,
     ) -> Result<()> {
@@ -235,7 +237,7 @@ impl KafkaHandler {
     async fn send_parsed_page(
         url: &str,
         parsed: &crate::internal::parser::models::ParsedPage,
-        metrics: &Metrics,
+        metrics: &Arc<Metrics>,
         producer: &FutureProducer,
         config: Arc<Config>,
     ) -> Result<()> {

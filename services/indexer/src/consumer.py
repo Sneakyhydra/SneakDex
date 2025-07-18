@@ -26,7 +26,7 @@ async def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
     consumer.subscribe([config.kafka_topic_parsed])
     log.info(f"Subscribed to Kafka topic: {config.kafka_topic_parsed}")
 
-    batch, batch_size = [], getattr(config, "batch_size", 50)
+    batch, batch_size = [], getattr(config, "batch_size", 100)
     message_count = 0
 
     if stop_event is None:
@@ -59,7 +59,6 @@ async def run_consumer(indexer: Any, config: Any, stop_event=None) -> None:
             value = msg.value().decode("utf-8")
             parsed_page = json.loads(value)
             batch.append(parsed_page)
-            message_count += 1
 
             MESSAGES_CONSUMED.inc()
 

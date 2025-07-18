@@ -20,8 +20,8 @@ class IndexerConfig(BaseSettings):
         default="indexer-group", validation_alias="KAFKA_GROUP_ID"
     )
 
-    batch_size: int = Field(default=1000, validation_alias="BATCH_SIZE")
-    max_docs: int | None = Field(default=None, validation_alias="MAX_DOCS")
+    batch_size: int = Field(default=100, validation_alias="BATCH_SIZE")
+    max_docs: int | None = Field(default=10000, validation_alias="MAX_DOCS")
 
     # Qdrant
     qdrant_url: str = Field(default="", validation_alias="QDRANT_URL")

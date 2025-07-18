@@ -1,5 +1,5 @@
 {
-  "id": null,
+  "id": 1,
   "title": "SneakDex Overview Dashboard",
   "tags": [
     "sneakdex",
@@ -8,7 +8,7 @@
   "timezone": "browser",
   "refresh": "30s",
   "time": {
-    "from": "now-1h",
+    "from": "now-5m",
     "to": "now"
   },
   "panels": [
@@ -18,7 +18,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "up{job=~\"crawler|parser|sneakdex-indexer|sneakdex-app\"}",
+          "expr": "up{job=~\"crawler|parser|indexer|app\"}",
           "legendFormat": "{{job}} - {{instance_id}}"
         }
       ],
@@ -66,39 +66,43 @@
       "type": "graph",
       "targets": [
         {
-          "expr": "pages_processed_total",
+          "expr": "crawler_inflight_pages",
+          "legendFormat": "{{instance_id}} - Currently Processing"
+        },
+        {
+          "expr": "crawler_pages_processed_total",
           "legendFormat": "{{instance_id}} - Pages Processed"
         },
         {
-          "expr": "pages_successful_total",
+          "expr": "crawler_pages_successful_total",
           "legendFormat": "{{instance_id}} - Successful"
         },
         {
-          "expr": "pages_failed_total",
+          "expr": "crawler_pages_failed_total",
           "legendFormat": "{{instance_id}} - Failed"
         },
         {
-          "expr": "kafka_successful_total",
+          "expr": "crawler_kafka_successful_total",
           "legendFormat": "{{instance_id}} - Kafka OK"
         },
         {
-          "expr": "kafka_failed_total",
+          "expr": "crawler_kafka_failed_total",
           "legendFormat": "{{instance_id}} - Kafka Failed"
         },
         {
-          "expr": "kafka_errored_total",
+          "expr": "crawler_kafka_errored_total",
           "legendFormat": "{{instance_id}} - Kafka Error"
         },
         {
-          "expr": "redis_successful_total",
+          "expr": "crawler_redis_successful_total",
           "legendFormat": "{{instance_id}} - Redis OK"
         },
         {
-          "expr": "redis_failed_total",
+          "expr": "crawler_redis_failed_total",
           "legendFormat": "{{instance_id}} - Redis Failed"
         },
         {
-          "expr": "redis_errored_total",
+          "expr": "crawler_redis_errored_total",
           "legendFormat": "{{instance_id}} - Redis Error"
         },
         {
@@ -123,6 +127,10 @@
       "title": "Parser Metrics",
       "type": "graph",
       "targets": [
+        {
+          "expr": "parser_inflight_pages",
+          "legendFormat": "{{instance_id}} - Currently Processing"
+        },
         {
           "expr": "parser_pages_processed",
           "legendFormat": "{{instance_id}} - Pages Processed"

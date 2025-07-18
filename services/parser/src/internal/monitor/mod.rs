@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::watch;
 use tracing::info;
 
 use crate::internal::core::KafkaHandler;
@@ -132,7 +133,7 @@ struct HealthResponse {
 /// Health check endpoint.
 #[get("/health")]
 async fn health(
-    metrics: web::Data<Metrics>,
+    metrics: web::Data<Arc<Metrics>>,
     kafka: web::Data<Arc<KafkaHandler>>,
 ) -> impl Responder {
     let uptime = metrics.get_uptime();
@@ -174,7 +175,7 @@ async fn live() -> impl Responder {
 
 /// Metrics endpoint (Prometheus-friendly).
 #[get("/metrics")]
-async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
+async fn metrics_endpoint(metrics: web::Data<Arc<Metrics>>) -> impl Responder {
     let uptime = metrics.get_uptime();
     let last_message_age = metrics
         .get_last_message_age()
@@ -183,9 +184,9 @@ async fn metrics_endpoint(metrics: web::Data<Metrics>) -> impl Responder {
         .unwrap_or(-1);
 
     let metrics_text = format!(
-        "# HELP inflight_pages Pages in processing\n\
-         # TYPE inflight_pages gauge\n\
-         inflight_pages {}\n\
+        "# HELP parser_inflight_pages Pages in processing\n\
+         # TYPE parser_inflight_pages gauge\n\
+         parser_inflight_pages {}\n\
          \n\
          # HELP parser_pages_processed Total pages processed\n\
          # TYPE parser_pages_processed counter\n\
@@ -242,15 +243,17 @@ async fn index() -> impl Responder {
 /// Start the monitor server, with metrics & kafka checker.
 pub async fn start_monitor_server(
     port: u16,
-    metrics: Metrics,
+    metrics: Arc<Metrics>,
     kafka_handler: Arc<KafkaHandler>,
+    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown_tx: watch::Sender<bool>,
 ) -> std::io::Result<()> {
     let metrics_data = web::Data::new(metrics);
     let kafka_data = web::Data::new(kafka_handler);
 
     info!("Starting monitor server on port {}", port);
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         App::new()
             .app_data(metrics_data.clone())
             .app_data(kafka_data.clone())
@@ -260,6 +263,16 @@ pub async fn start_monitor_server(
             .service(index)
     })
     .bind(("0.0.0.0", port))?
-    .run()
-    .await
+    .run();
+
+    tokio::select! {
+        res = server => {
+            res
+        }
+        _ = shutdown_rx.changed() => {
+            info!("Shutdown signal received, stopping monitor server.");
+            let _ = shutdown_tx.send(true);
+            Ok(())
+        }
+    }
 }

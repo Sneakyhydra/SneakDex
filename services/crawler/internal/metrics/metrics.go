@@ -67,43 +67,43 @@ func NewMetrics() *Metrics {
 		startTime: time.Now(),
 
 		inflightPagesGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "inflight_pages",
+			Name: "crawler_inflight_pages",
 			Help: "Number of pages currently being processed",
 		}),
 		pagesProcessedGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "pages_processed_total",
+			Name: "crawler_pages_processed_total",
 			Help: "Total number of pages processed",
 		}),
 		pagesSuccessfulGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "pages_successful_total",
+			Name: "crawler_pages_successful_total",
 			Help: "Total number of pages successfully processed",
 		}),
 		pagesFailedGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "pages_failed_total",
+			Name: "crawler_pages_failed_total",
 			Help: "Total number of pages failed",
 		}),
 		kafkaSuccessfulGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "kafka_successful_total",
+			Name: "crawler_kafka_successful_total",
 			Help: "Successful Kafka messages sent",
 		}),
 		kafkaFailedGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "kafka_failed_total",
+			Name: "crawler_kafka_failed_total",
 			Help: "Failed Kafka messages",
 		}),
 		kafkaErroredGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "kafka_errored_total",
+			Name: "crawler_kafka_errored_total",
 			Help: "Errored Kafka messages",
 		}),
 		redisSuccessfulGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "redis_successful_total",
+			Name: "crawler_redis_successful_total",
 			Help: "Successful Redis writes",
 		}),
 		redisFailedGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "redis_failed_total",
+			Name: "crawler_redis_failed_total",
 			Help: "Failed Redis writes",
 		}),
 		redisErroredGauge: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "redis_errored_total",
+			Name: "crawler_redis_errored_total",
 			Help: "Errored Redis writes",
 		}),
 		uptimeGauge: prometheus.NewGauge(prometheus.GaugeOpts{

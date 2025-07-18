@@ -1,7 +1,7 @@
 # monitor.py
 
 from aiohttp import web
-from prometheus_client import CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from prometheus_client import Counter, Gauge
 import logging
 

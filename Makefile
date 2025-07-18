@@ -4,6 +4,7 @@ DC_PROD      ?= docker-compose -f docker-compose.prod.yml
 SERVICE      ?= all
 ENV          ?= dev
 CMD          ?= up
+SCALE        ?=
 
 # Colors
 RED          = \033[0;31m
@@ -26,7 +27,7 @@ SERVICES     := prometheus grafana kafka redis crawler parser indexer app
 # ==============================================================================
 help:
 	@echo "$(CYAN)Available commands:$(NC)"
-	@echo "  $(GREEN)make <command> [SERVICE=name] [ENV=dev|prod]$(NC)"
+	@echo "  $(GREEN)make <command> [SERVICE=name] [ENV=dev|prod] [SCALE=\"service=n …\"]$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Commands:$(NC)"
 	@echo "  up           - Start service(s) with build"
@@ -44,6 +45,7 @@ help:
 	@echo ""
 	@echo "$(YELLOW)Examples:$(NC)"
 	@echo "  make up SERVICE=app ENV=dev"
+	@echo "  make up SERVICE=all SCALE=\"parser=3 crawler=2\" ENV=prod"
 	@echo "  make logs SERVICE=kafka ENV=prod"
 	@echo "  make reset"
 	@echo ""
@@ -54,7 +56,9 @@ help:
 # ==============================================================================
 define cmd_template
 	@echo "$(CYAN)>> $(1)-$(SERVICE)-$(ENV) <<$(NC)"
-	$(if $(findstring prod,$(ENV)), $(DC_PROD), $(DC)) $(1) $(if $(filter all,$(SERVICE)),, $(SERVICE)) $(2)
+	$(if $(findstring prod,$(ENV)), $(DC_PROD), $(DC)) $(1) \
+	$(if $(filter all,$(SERVICE)),, $(SERVICE)) $(2) \
+	$(foreach s,$(SCALE),--scale $(s))
 endef
 
 up:
