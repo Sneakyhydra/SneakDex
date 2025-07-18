@@ -95,7 +95,7 @@ async function ensurePayloadIndexes(
 async function getEmbedder() {
   if (!modelPromise) {
     console.log("Loading embedding model...");
-    modelPromise = pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+    modelPromise = pipeline("feature-extraction", "Xenova/all-MiniLM-L12-v2");
   }
   lastUsed = Date.now();
   return await modelPromise;

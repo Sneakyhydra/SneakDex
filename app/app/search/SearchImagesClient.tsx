@@ -164,7 +164,7 @@ const SearchImagesClient = ({ data }: { data: SearchImgResponse }) => {
             className={`px-3 py-1 text-sm rounded ${
               page === 1
                 ? "text-zinc-500 cursor-not-allowed"
-                : "text-emerald-400 hover:text-emerald-300"
+                : "text-emerald-400 hover:text-emerald-300 cursor-pointer"
             }`}
           >
             Prev
@@ -177,7 +177,7 @@ const SearchImagesClient = ({ data }: { data: SearchImgResponse }) => {
               className={`px-2 py-1 text-sm rounded ${
                 page === idx + 1
                   ? "bg-emerald-500/20 text-emerald-300"
-                  : "text-zinc-400 hover:text-emerald-300"
+                  : "text-zinc-400 hover:text-emerald-300 cursor-pointer"
               }`}
             >
               {idx + 1}
@@ -188,6 +188,8 @@ const SearchImagesClient = ({ data }: { data: SearchImgResponse }) => {
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
             className={`px-3 py-1 text-sm rounded ${
+              page === totalPages ? "" : "cursor-pointer"
+            } ${
               page === totalPages
                 ? "text-zinc-500 cursor-not-allowed"
                 : "text-emerald-400 hover:text-emerald-300"
