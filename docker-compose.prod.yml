@@ -31,6 +31,8 @@ services:
       - KAFKA_CFG_REPLICA_FETCH_MAX_BYTES=10485760
       - KAFKA_ENABLE_KRAFT=yes
       - KAFKA_CFG_JMX_PORT=9999
+    volumes:
+      - kafka-data:/bitnami/kafka
     networks:
       - sneakdex-network
     healthcheck:
@@ -40,25 +42,14 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '1.0'
-          memory: 512M
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   redis:
     image: redis:7
     container_name: sneakdex-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     networks:
       - sneakdex-network
@@ -69,19 +60,6 @@ services:
       retries: 5
       start_period: 15s
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
   
   crawler:
     build:
@@ -103,31 +81,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    read_only: true
-    tmpfs:
-      - /tmp:noexec,nosuid,size=100m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.sneakdex.service=crawler"
-      - "com.sneakdex.environment=production"
 
   parser:
     build:
@@ -147,32 +100,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '1.0'
-          memory: 512M
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    read_only: true
-    tmpfs:
-      - /tmp:noexec,nosuid,size=100m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.sneakdex.service=parser"
-      - "com.sneakdex.environment=production"
-
+    
   indexer:
     build:
       context: ./services/indexer
@@ -191,35 +119,11 @@ services:
       - monitoring
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '1.0'
-          memory: 512M
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    tmpfs:
-      - /tmp:noexec,nosuid,size=100m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.sneakdex.service=indexer"
-      - "com.sneakdex.environment=production"
-
+    
   app:
     build:
       context: ./app
@@ -245,31 +149,7 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '1.0'
-          memory: 512M
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    tmpfs:
-      - /tmp:noexec,nosuid,size=100m
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    labels:
-      - "com.sneakdex.service=app"
-      - "com.sneakdex.environment=production"
-
+    
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.9.0
     container_name: kafka-exporter
