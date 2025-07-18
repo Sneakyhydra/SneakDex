@@ -231,6 +231,8 @@ services:
       - NEXT_TELEMETRY_DISABLED=1
       - PORT=3000
       - HOSTNAME=0.0.0.0
+    env_file:
+      - ./app/.env.local
     ports:
       - "3000:3000"
     networks:

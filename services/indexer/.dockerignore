@@ -9,27 +9,25 @@ __pycache__/
 .Python
 
 # Virtual environments
-venv/
-env/
-ENV/
-env.bak/
-venv.bak/
-.venv/
+venv*/
+env*/
+.venv*/
+ENV*/
+env.bak*/
+venv.bak*/
 .env/
 pip-selfcheck.json
 
-# Package management
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.nox/
-.coverage
+# Python tooling caches
 .pytest_cache/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+.coverage
+.tox/
+.nox/
 
-# IDE and Editor files
+# Editor & IDE configs
 .vscode/
 .idea/
 *.swp
@@ -48,64 +46,68 @@ ehthumbs.db
 Thumbs.db
 
 # Git
-.git
+.git/
 .gitignore
 .gitattributes
 
 # Documentation
-README.md
 docs/
 *.md
+README*
+CHANGELOG*
+LICENSE*
 
-# Docker
-Dockerfile
-Dockerfile.prod
+# Docker / Compose
+Dockerfile*
 .dockerignore
-docker-compose.yml
-docker-compose.prod.yml
+docker-compose*.yml
 .docker/
 
 # Logs
-*.log
 logs/
+*.log
 
-# Environment variables
-.env
-.env.production
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Environment files
+.env*
+*.env*
 
-# Temporary files
+# Temp & cache
 *.tmp
 *.temp
 .cache/
 
-# CI/CD
+# CI/CD configs
 .github/
 .travis.yml
 .circleci/
 .gitlab-ci.yml
 
-# Deployment
+# Deployment manifests
 deployments/
 k8s/
 helm/
 terraform/
 
-# Development tools
+# Dev tools
 Makefile
+scripts/
 scripts/dev/
 .pre-commit-config.yaml
 
-# Python-specific development
-*.ipynb_checkpoints
+# Notebook junk
+*.ipynb_checkpoints/
 .ipynb_checkpoints/
 .jupyter/
+
+# Lint & config
 .pylintrc
 setup.cfg
 pyproject.toml
 tox.ini
 .bandit
 .flake8
+
+# Misc
+*.bak
+*.orig
+*.old

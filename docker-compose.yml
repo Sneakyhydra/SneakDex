@@ -149,6 +149,8 @@ services:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
+    env_file:
+      - ./app/.env.local
     ports:
       - "3000:3000"
     volumes:

@@ -36,7 +36,7 @@ htmlcov/
 .nox/
 .coverage
 .coverage.*
-.cache
+.cache/
 nosetests.xml
 coverage.xml
 *.cover
@@ -51,10 +51,58 @@ cover/
 
 # Environments
 .env
-.env.production
-.venv
+.env.*
+.venv/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# IDE / Editor settings
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml
+.docker/
+Dockerfile
+*.tar
+*.gz
+
+# Miscellaneous
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# CI/CD
+.github/
+.gitlab/
+*.yml
+
+# Deployment
+k8s/
+helm/
+terraform/
+
+# Documentation
+docs/
+*.md
+
+# OS-generated
+.DS_Store
+Thumbs.db
+ehthumbs.db
