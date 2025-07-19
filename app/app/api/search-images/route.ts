@@ -327,6 +327,10 @@ export async function POST(req: Request) {
       );
     }
 
+    const qdrantInfo = await qdrant.getCollection(COLLECTION_NAME_IMAGES);
+
+    const totalDocumentsQdrant = qdrantInfo.points_count ?? 0;
+
     const redis = Redis.fromEnv();
     const cacheKey = generateCacheKey(
       cleanQuery,
@@ -344,6 +348,9 @@ export async function POST(req: Request) {
           results: cachedResult,
           query: cleanQuery,
           top_k,
+          totalAvailable: {
+            qdrant: totalDocumentsQdrant,
+          },
         });
       }
     } catch (cacheError) {
@@ -426,6 +433,9 @@ export async function POST(req: Request) {
         results: [],
         query: cleanQuery,
         top_k,
+        totalAvailable: {
+          qdrant: totalDocumentsQdrant,
+        },
       });
     }
 
@@ -454,6 +464,9 @@ export async function POST(req: Request) {
       query: cleanQuery,
       top_k,
       useEmbeddings,
+      totalAvailable: {
+        qdrant: totalDocumentsQdrant,
+      },
     });
   } catch (err) {
     console.error("Search endpoint error:", err);

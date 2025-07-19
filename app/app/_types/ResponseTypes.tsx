@@ -22,6 +22,10 @@ export type SearchResponse = {
     url?: string;
     title?: string;
   }>;
+  totalAvailable: {
+    qdrant: number;
+    postgres: number;
+  };
   [key: string]: any;
 };
 
@@ -42,5 +46,8 @@ export type SearchImgResponse = {
       [key: string]: any;
     };
   }>;
+  totalAvailable: {
+    qdrant: number;
+  };
   [key: string]: any;
 };

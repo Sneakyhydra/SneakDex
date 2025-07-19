@@ -363,6 +363,14 @@ export async function POST(req: Request) {
       );
     }
 
+    const [qdrantInfo, pgCount] = await Promise.all([
+      qdrant.getCollection(COLLECTION_NAME),
+      supabase.rpc("get_estimated_count"),
+    ]);
+
+    const totalDocumentsQdrant = qdrantInfo.points_count ?? 0;
+    const totalDocumentsPostgres = pgCount.data?.[0]?.estimated_count ?? 0;
+
     const redis = Redis.fromEnv();
     const cacheKey = generateCacheKey(
       cleanQuery,
@@ -380,6 +388,10 @@ export async function POST(req: Request) {
           results: cachedResult,
           query: cleanQuery,
           top_k,
+          totalAvailable: {
+            qdrant: totalDocumentsQdrant,
+            postgres: totalDocumentsPostgres,
+          },
         });
       }
     } catch (cacheError) {
@@ -497,6 +509,10 @@ export async function POST(req: Request) {
         results: [],
         query: cleanQuery,
         top_k,
+        totalAvailable: {
+          qdrant: totalDocumentsQdrant,
+          postgres: totalDocumentsPostgres,
+        },
       });
     }
 
@@ -640,6 +656,10 @@ export async function POST(req: Request) {
       query: cleanQuery,
       top_k,
       useEmbeddings,
+      totalAvailable: {
+        qdrant: totalDocumentsQdrant,
+        postgres: totalDocumentsPostgres,
+      },
     });
   } catch (err) {
     console.error("Search endpoint error:", err);
