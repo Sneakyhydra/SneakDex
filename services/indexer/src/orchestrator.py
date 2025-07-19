@@ -8,6 +8,8 @@ Orchestrates the ModernIndexer service:
 import logging
 import math
 import uuid
+import re
+from urllib.parse import urlparse
 
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
@@ -67,6 +69,19 @@ class ModernIndexer:
             log.error(f"Failed to ensure Qdrant collections: {e}")
             raise
 
+    def normalize_url(self, url: str) -> str:
+        """
+        Turn a URL into a human-readable string for embedding.
+        Example: 'https://en.wikipedia.org/wiki/OpenAI' → 'en wikipedia org wiki OpenAI'
+        """
+        if not url:
+            return ""
+        parsed = urlparse(url)
+        # break into domain and path
+        domain = parsed.netloc.replace(".", " ")
+        path = re.sub(r"[^a-zA-Z0-9]", " ", parsed.path)  # replace slashes and symbols
+        return f"{domain} {path}".strip()
+
     def build_embedding_text(self, doc: dict) -> str:
         """
         Build text for embedding: title + first h1 + body text.
@@ -77,7 +92,11 @@ class ModernIndexer:
         )
         if h1:
             pieces.append(h1)
+
         pieces.append(doc.get("cleaned_text", ""))
+        url = doc.get("url", "").strip()
+        if url:
+            pieces.append(self.normalize_url(url))
         return " ".join(pieces).strip()
 
     def build_image_caption(self, img: dict) -> str:
