@@ -144,7 +144,7 @@ const Home = () => {
                   : "hover:border-zinc-600/50"
               }`}
             >
-              <div className="flex items-center w-full sm:w-auto flex-grow sm:flex-grow-0">
+              <div className="flex items-center w-full flex-grow">
                 {/* Logo — now animated & interactive */}
                 <div
                   className={`pr-2 transition-all duration-700 ${
@@ -164,7 +164,7 @@ const Home = () => {
                 <input
                   type="text"
                   placeholder="Search for anything…"
-                  className="flex-grow px-2 py-2 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-sm sm:text-base"
+                  className="flex-grow w-full px-2 py-2 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-sm sm:text-base"
                   value={searchQuery}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     setSearchQuery(e.target.value)
