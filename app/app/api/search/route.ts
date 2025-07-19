@@ -349,9 +349,9 @@ export async function POST(req: Request) {
 
     const cleanQuery = query.trim();
 
-    if (cleanQuery.length < 2 || cleanQuery.length > 100) {
+    if (cleanQuery.length < 1 || cleanQuery.length > 100) {
       return NextResponse.json(
-        { error: "Query must be between 2 and 100 characters" },
+        { error: "Query must be between 1 and 100 characters" },
         { status: 400 }
       );
     }
