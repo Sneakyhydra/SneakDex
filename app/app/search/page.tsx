@@ -1,95 +1,157 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
-import { Search, Image, Zap } from "lucide-react";
-import SearchClient from "./SearchClient";
-import SearchImagesClient from "./SearchImagesClient";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
+import { Search, Image, Sparkles, Command } from "lucide-react";
+import SearchForm from "../_components/SearchForm";
+import SearchClient from "./_components/SearchClient";
+import SearchImagesClient from "./_components/SearchImagesClient";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-type Heading = { level: number; text: string };
-type Image = { src: string; alt?: string; title?: string };
-type SearchResponse = {
-  source: string;
-  results: Array<{
-    id: string | number;
-    hybridScore?: number;
-    qdrantScore?: number;
-    pgScore?: number;
-    payload: {
-      url?: string;
-      title?: string;
-      description?: string;
-      headings?: Heading[];
-      images?: Image[];
-      language?: string;
-      timestamp?: string;
-      content_type?: string;
-      text_snippet?: string;
-      [key: string]: any;
-    };
-    url?: string;
-    title?: string;
-  }>;
-  [key: string]: any;
-};
-
-type SearchImgResponse = {
-  source: string;
-  results: Array<{
-    id: string | number;
-    score: number;
-    payload: {
-      src?: string;
-      alt?: string;
-      title?: string;
-      caption?: string;
-      page_url?: string;
-      page_title?: string;
-      page_description?: string;
-      timestamp?: string;
-      [key: string]: any;
-    };
-  }>;
-  [key: string]: any;
-};
+import { SearchResponse, SearchImgResponse } from "../_types/ResponseTypes";
+import { useAppContext } from "../_contexts/AppContext";
 
 const SearchPage = () => {
   const router = useRouter();
+
+  const updateUrl = ({
+    newQuery,
+    newTab,
+    newPage,
+  }: {
+    newQuery: string;
+    newTab: string;
+    newPage: number;
+  }) => {
+    router.push(
+      `/search?q=${encodeURIComponent(newQuery)}&t=${newTab}&p=${newPage}`
+    );
+  };
+
   const searchParams = useSearchParams();
-  const query = searchParams.get("q") ?? "";
-  const [searchQuery, setSearchQuery] = useState(query);
-  const [tab, setTab] = useState<"text" | "images">("text");
-  const [data, setData] = useState<SearchResponse | null>(null);
-  const [imgData, setImgData] = useState<SearchImgResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingImg, setLoadingImg] = useState(false);
-  const [loadedOnce, setLoadedOnce] = useState<string | null>(null);
-  const [loadedImgOnce, setLoadedImgOnce] = useState<string | null>(null);
+  const query = searchParams.get("q")?.trim() ?? "";
+  const tab = searchParams.get("t")?.trim() ?? "";
+  const page = searchParams.get("p")?.trim() ?? "";
+  const pageNum = parseInt(page, 10);
 
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const {
+    data,
+    setData,
+    dataQuery,
+    setDataQuery,
+    imgData,
+    setImgData,
+    imgDataQuery,
+    setImgDataQuery,
+    isMobile,
+    setIsMobile,
+    loading,
+    setLoading,
+    loadingImg,
+    setLoadingImg,
+    searchQuery,
+    setSearchQuery,
+  } = useAppContext();
+
   const [showAnimations, setShowAnimations] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+
+  // Animation timing
   useEffect(() => {
-    // Trigger animations after component mounts
     const timer = setTimeout(() => {
       setShowAnimations(true);
-    }, 100);
+    }, 150);
 
-    return () => {
-      clearTimeout(timer);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Mobile detection
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640);
     };
+
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Redirect if no query or invalid tab/page
+  useEffect(() => {
+    if (!query) {
+      router.push("/");
+      return;
+    }
+    let newTab = "text";
+    let newPage = 1;
+    const pageNum = parseInt(page, 10);
+
+    if (!tab || (tab !== "text" && tab !== "images")) {
+      if (!page || isNaN(pageNum) || pageNum < 1) {
+        updateUrl({ newQuery: query, newTab, newPage: newPage });
+        return;
+      }
+      updateUrl({ newQuery: query, newTab, newPage: pageNum });
+      return;
+    }
+
+    if (!page || isNaN(pageNum) || pageNum < 1) {
+      updateUrl({ newQuery: query, newTab, newPage: newPage });
+      return;
+    }
+  }, [query, tab, page, router]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Focus search on Ctrl/Cmd + K
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+
+      // Switch tabs with Ctrl/Cmd + 1/2
+      if ((e.ctrlKey || e.metaKey) && e.key === "1") {
+        e.preventDefault();
+        updateUrl({ newQuery: query, newTab: "text", newPage: 1 });
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "2") {
+        e.preventDefault();
+        updateUrl({ newQuery: query, newTab: "images", newPage: 1 });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   useEffect(() => {
-    if (!query.trim()) {
-      router.push("/");
+    if (topRef.current) {
+      topRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [query, router]);
+  }, [page]);
 
-  const fetchResults = async (q: string) => {
+  useEffect(() => {
+    if (tab === "text") {
+      if (query !== dataQuery) {
+        fetchResults(query);
+      }
+    } else if (tab === "images") {
+      if (query !== imgDataQuery) {
+        fetchImgResults(query);
+      }
+    }
+  }, [query, tab]);
+
+  const fetchResults = useCallback(async (q: string) => {
     setLoading(true);
+    setError(null);
     setData(null);
+    setDataQuery(null);
 
     try {
       const res = await fetch(`/api/search`, {
@@ -98,21 +160,34 @@ const SearchPage = () => {
         body: JSON.stringify({ query: q }),
       });
 
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      if (!res.ok) {
+        throw new Error(
+          res.status === 429
+            ? "Rate limit exceeded. Please try again later."
+            : `Search failed with status ${res.status}`
+        );
+      }
+
       const json: SearchResponse = await res.json();
       setData(json);
-      setLoadedOnce(q);
+      setDataQuery(q);
     } catch (err) {
-      console.error("Error fetching search results", err);
-      setData(null);
+      if (err instanceof Error) {
+        console.error("Error fetching search results", err);
+        setError(err.message || "Failed to fetch search results");
+        setData(null);
+        setDataQuery(null);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchImgResults = async (q: string) => {
+  const fetchImgResults = useCallback(async (q: string) => {
     setLoadingImg(true);
+    setError(null);
     setImgData(null);
+    setImgDataQuery(null);
 
     try {
       const res = await fetch(`/api/search-images`, {
@@ -121,250 +196,302 @@ const SearchPage = () => {
         body: JSON.stringify({ query: q }),
       });
 
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      if (!res.ok) {
+        throw new Error(
+          res.status === 429
+            ? "Rate limit exceeded. Please try again later."
+            : `Image search failed with status ${res.status}`
+        );
+      }
+
       const json: SearchImgResponse = await res.json();
       setImgData(json);
-      setLoadedImgOnce(q);
+      setImgDataQuery(q);
     } catch (err) {
-      console.error("Error fetching image results", err);
-      setImgData(null);
+      if (err instanceof Error) {
+        console.error("Error fetching image results", err);
+        setError(err.message || "Failed to fetch image results");
+        setImgData(null);
+        setImgDataQuery(null);
+      }
     } finally {
       setLoadingImg(false);
     }
+  }, []);
+
+  const handleTabSwitch = (newTab: string) => {
+    updateUrl({ newQuery: query, newTab: newTab, newPage: 1 });
   };
 
-  const handleSearch = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const trimmedQuery = searchQuery.trim();
-    if (!trimmedQuery) return;
+  const renderLoadingState = (type: string) => (
+    <div className="text-center text-zinc-400 flex flex-col items-center gap-6 py-20">
+      <div className="relative">
+        <div className="w-16 h-16 border-4 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+        <div className="absolute inset-0 w-16 h-16 border-4 border-emerald-400/10 rounded-full animate-ping" />
+        <Sparkles className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-emerald-400 animate-pulse" />
+      </div>
+      <div className="space-y-2">
+        <p className="font-semibold text-xl">
+          {type === "text" ? "Searching the web" : "Finding images"}…
+        </p>
+        <p className="text-sm text-zinc-500 max-w-md">
+          Analyzing lakhs of results to find exactly what you need
+        </p>
+      </div>
+    </div>
+  );
 
-    if (trimmedQuery !== query) {
-      router.push(`/search?q=${encodeURIComponent(trimmedQuery)}`);
+  const renderErrorState = () => (
+    <div className="text-center text-zinc-400 py-20 space-y-6">
+      <div className="bg-gradient-to-br from-red-500/10 via-red-400/10 to-orange-500/10 border border-red-400/20 rounded-2xl p-6 max-w-md mx-auto backdrop-blur-sm">
+        <div className="w-12 h-12 bg-red-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
+          <Search className="w-6 h-6 text-red-400" />
+        </div>
+        <h3 className="font-semibold text-lg mb-2 text-red-300">
+          Search Error
+        </h3>
+        <p className="text-sm text-zinc-300">{error}</p>
+      </div>
+      <button
+        onClick={() =>
+          tab === "text" ? fetchResults(query) : fetchImgResults(query)
+        }
+        className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl transition-all duration-300 font-medium shadow-lg hover:shadow-emerald-500/25 hover:scale-105 active:scale-95"
+      >
+        Try Again
+      </button>
+    </div>
+  );
+
+  const renderEmptyState = (type: string) => {
+    // Only show empty state if we've actually completed a search and got no results
+    const hasSearchCompleted =
+      type === "text"
+        ? !loading && dataQuery === query
+        : !loadingImg && imgDataQuery === query;
+
+    if (!hasSearchCompleted) {
+      return renderLoadingState(type);
     }
+
+    return (
+      <div className="text-center text-zinc-400 py-20 space-y-6" ref={topRef}>
+        <div className="space-y-3">
+          <div className="w-16 h-16 bg-gradient-to-br from-zinc-700 to-zinc-800 rounded-2xl flex items-center justify-center mx-auto">
+            {type === "text" ? (
+              <Search className="w-8 h-8 text-zinc-400" />
+            ) : (
+              <Image className="w-8 h-8 text-zinc-400" />
+            )}
+          </div>
+          <h3 className="font-semibold text-xl text-zinc-300">
+            No {type} results found
+          </h3>
+          <p className="text-zinc-500 max-w-md mx-auto">
+            We couldn't find any {type} results for{" "}
+            <span className="font-medium text-zinc-300 bg-zinc-800 px-2 py-1 rounded">
+              "{query}"
+            </span>
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <button
+            onClick={() => handleTabSwitch(type === "text" ? "images" : "text")}
+            className="px-6 py-3 bg-gradient-to-r from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white rounded-xl transition-all duration-300 hover:scale-105 active:scale-95"
+            disabled={type === "text" ? loadingImg : loading}
+          >
+            {type === "text"
+              ? loadingImg
+                ? "Loading Images..."
+                : "Try Images Search"
+              : loading
+              ? "Loading Text..."
+              : "Try Text Search"}
+          </button>
+          <button
+            onClick={() => {
+              setSearchQuery("");
+              searchInputRef.current?.focus();
+            }}
+            className="px-6 py-3 border-2 border-zinc-600 hover:border-zinc-500 text-zinc-300 hover:text-white rounded-xl transition-all duration-300 hover:bg-zinc-800/50 hover:scale-105 active:scale-95"
+          >
+            New Search
+          </button>
+        </div>
+      </div>
+    );
   };
-
-  useEffect(() => {
-    if (query.trim() && tab === "text") {
-      fetchResults(query);
-    } else if (query.trim() && tab === "images") {
-      fetchImgResults(query);
-    }
-  }, [query]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-neutral-900 to-stone-900 text-white flex flex-col px-4 py-6 relative overflow-hidden">
-      {/* Animated background */}
+    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-slate-900 to-neutral-900 text-white flex flex-col px-4 py-6 relative overflow-hidden">
+      {/* Enhanced animated background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-gradient-to-r from-emerald-500/5 to-teal-500/5 rounded-full blur-2xl animate-pulse" />
         <div
-          className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-gradient-to-r from-teal-500/5 to-lime-500/5 rounded-full blur-2xl animate-pulse"
+          className={`absolute top-1/4 left-1/4 w-96 h-96 bg-gradient-to-r from-emerald-500/8 via-teal-500/8 to-cyan-500/8 rounded-full blur-3xl transition-all duration-[4s] ${
+            showAnimations
+              ? "animate-pulse opacity-100 scale-100"
+              : "opacity-0 scale-75"
+          }`}
+        />
+        <div
+          className={`absolute bottom-1/4 right-1/4 w-80 h-80 bg-gradient-to-r from-violet-500/8 via-purple-500/8 to-pink-500/8 rounded-full blur-3xl transition-all duration-[4s] ${
+            showAnimations
+              ? "animate-pulse opacity-100 scale-100"
+              : "opacity-0 scale-75"
+          }`}
           style={{ animationDelay: "1s" }}
         />
-        <div className="absolute top-20 left-20 w-2 h-2 bg-emerald-400/30 rounded-full animate-ping" />
-        <div
-          className="absolute bottom-20 right-20 w-3 h-3 bg-teal-400/30 rounded-full animate-pulse"
-          style={{ animationDelay: "0.5s" }}
-        />
-        <div
-          className="absolute top-1/3 right-16 w-1 h-1 bg-lime-400/40 rounded-full animate-pulse"
-          style={{ animationDelay: "1s" }}
-        />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-emerald-950/5 to-transparent" />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 w-full max-w-6xl mx-auto mb-8">
-        <div className="flex items-center flex-row flex-wrap justify-center gap-4 md:gap-8">
-          {/* Logo with animations */}
-          <Link href="/">
-            <div
-              className={`transform transition-all duration-1000 ${
+      {/* Enhanced Header */}
+      <div className="relative z-10 w-full max-w-7xl mx-auto mb-8">
+        <div className="flex items-center flex-col lg:flex-row gap-6 lg:gap-8">
+          {/* Logo with back button */}
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className={`transform transition-all duration-700 hover:scale-105 ${
                 showAnimations
                   ? "translate-y-0 opacity-100"
                   : "translate-y-8 opacity-0"
               }`}
+              aria-label="Go to homepage"
             >
-              <div className="relative flex items-center">
+              <div className="relative flex items-center group">
                 <div className="relative">
-                  {/* Foreground text */}
-                  <h1
-                    className="relative font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-100 to-teal-300 text-center tracking-tight
-      text-5xl"
-                  >
+                  <h1 className="relative font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-200 to-teal-400 text-center tracking-tight text-4xl lg:text-5xl group-hover:from-emerald-300 group-hover:via-teal-300 group-hover:to-cyan-300 transition-all duration-500">
                     SneakDex
                   </h1>
-
-                  {/* Glowing text behind */}
-                  <div
-                    className="absolute inset-0 font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-300/50 via-teal-300/50 to-lime-300/50 text-center tracking-tight blur-xl opacity-40 pointer-events-none
-      text-[clamp(2.5rem,8vw,8rem)]"
-                  >
+                  <div className="absolute inset-0 font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400/40 via-teal-400/40 to-cyan-400/40 text-center tracking-tight blur-xl opacity-60 pointer-events-none text-4xl lg:text-5xl group-hover:opacity-80 transition-opacity duration-500">
                     SneakDex
                   </div>
-
-                  {/* Orb behind */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-full blur-2xl opacity-40 animate-pulse pointer-events-none" />
+                  <div className="absolute -inset-4 bg-gradient-to-r from-emerald-400/10 to-teal-400/10 rounded-2xl blur-2xl opacity-30 animate-pulse pointer-events-none group-hover:opacity-50 transition-opacity duration-500" />
                 </div>
               </div>
-            </div>
-          </Link>
+            </Link>
+          </div>
 
-          {/* Search form */}
+          <SearchForm
+            showAnimations={showAnimations}
+            searchQuery={searchQuery}
+            searchInputRef={searchInputRef}
+            query={query}
+            isMobile={isMobile}
+            setSearchQuery={setSearchQuery}
+            loading={loading}
+            loadingImg={loadingImg}
+            tab={tab}
+            updateUrl={updateUrl}
+          />
+
+          {/* Enhanced Tabs */}
           <div
-            className={`w-full max-w-2xl min-w-72 transition-all duration-700 delay-200 ${
+            className={`transition-all duration-700 delay-300 ${
               showAnimations
                 ? "translate-y-0 opacity-100"
                 : "translate-y-8 opacity-0"
             }`}
           >
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSearch();
-              }}
-              className={`px-3 relative flex flex-col justify-between sm:flex-row items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-2xl py-1.5 gap-2 transition-all duration-300 ${
-                isSearchFocused
-                  ? "border-emerald-400/50 shadow-md shadow-emerald-500/10"
-                  : "hover:border-zinc-600/50"
-              }`}
-            >
-              <div className="flex items-center w-full flex-grow">
-                {/* Logo — now animated & interactive */}
-                <div
-                  className={`pr-2 transition-all duration-700 ${
-                    showAnimations
-                      ? "opacity-100 translate-x-0"
-                      : "opacity-0 -translate-x-4"
-                  }`}
+            <div className="flex bg-white/5 backdrop-blur-xl rounded-2xl p-1.5 border border-white/10 shadow-2xl">
+              {[
+                { key: "text", icon: Search, label: "Text", shortcut: "1" },
+                { key: "images", icon: Image, label: "Images", shortcut: "2" },
+              ].map(({ key, icon: Icon, label, shortcut }) => (
+                <Link
+                  key={key}
+                  href={`/search?q=${encodeURIComponent(query)}&t=${key}&p=1`}
                 >
-                  <img
-                    src="/favicon.ico"
-                    alt="SneakDex Logo"
-                    className="w-6 h-6 transition-transform duration-300 hover:scale-110 hover:drop-shadow-[0_0_6px_#34d399]"
-                  />
-                </div>
+                  <button
+                    // onClick={() => handleTabSwitch(key)}
+                    className={`relative px-4 sm:px-6 py-3 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 text-sm min-w-[80px] sm:min-w-[100px] justify-center group overflow-hidden ${
+                      tab === key
+                        ? "text-white shadow-lg transform scale-105"
+                        : "text-zinc-400 hover:text-zinc-200 hover:bg-white/5 hover:scale-102"
+                    }`}
+                    style={{
+                      background:
+                        tab === key
+                          ? "linear-gradient(135deg, #059669, #10b981, #34d399)"
+                          : "transparent",
+                    }}
+                    title={`Switch to ${label} (Ctrl+${shortcut})`}
+                  >
+                    {/* Active tab background effect */}
+                    {tab === key && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-xl opacity-60 animate-pulse" />
+                    )}
 
-                {/* Input */}
-                <input
-                  type="text"
-                  placeholder="Search for anything…"
-                  className="flex-grow w-full px-2 py-2 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-sm sm:text-base"
-                  value={searchQuery}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setSearchQuery(e.target.value)
-                  }
-                  onFocus={() => setIsSearchFocused(true)}
-                  onBlur={() => setIsSearchFocused(false)}
+                    {/* Tab content */}
+                    <div className="relative flex items-center gap-2">
+                      <Icon className="w-4 h-4" />
+                      <span className="hidden sm:inline">{label}</span>
+                    </div>
+                  </button>
+                </Link>
+              ))}
+            </div>
+            {!isMobile && (
+              <div className="absolute -bottom-6 left-0 flex items-center gap-1 text-xs text-zinc-500">
+                <span className="font-mono text-zinc-500">Ctrl</span>
+                <span>/</span>
+                <Command
+                  className="w-3 h-3 text-zinc-400 inline-block align-text-bottom"
+                  aria-label="Command key"
                 />
+                <span>
+                  + <span className="font-mono text-zinc-500">1 / 2</span> to
+                  switch
+                </span>
               </div>
-
-              {/* Button */}
-              <button
-                type="submit"
-                className="relative cursor-pointer w-full sm:w-auto px-4 py-2 text-sm text-white rounded-lg font-medium transition-all duration-300 hover:scale-105 active:scale-95 flex items-center justify-center gap-1 hover:brightness-110"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #065f46, #047857, #059669)",
-                }}
-              >
-                <span>Search</span>
-              </button>
-            </form>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex gap-1 max-w-2xl min-w-60 justify-center md:justify-start bg-zinc-900/50 backdrop-blur-sm rounded-xl p-1 border border-zinc-700/50 w-full">
-            <button
-              onClick={() => {
-                setTab("text");
-                if (!loadedOnce || (loadedOnce && loadedOnce !== query)) {
-                  fetchResults(query);
-                }
-              }}
-              className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center justify-center gap-2 text-sm ${
-                tab === "text"
-                  ? "text-white shadow-lg"
-                  : "text-zinc-400 cursor-pointer hover:text-zinc-200 hover:bg-zinc-800/50"
-              }`}
-              style={{
-                background:
-                  tab === "text"
-                    ? "linear-gradient(135deg, #065f46, #047857, #059669)"
-                    : "transparent",
-              }}
-            >
-              <Search className="w-3 h-3" />
-              Text
-            </button>
-            <button
-              onClick={() => {
-                setTab("images");
-                if (
-                  !loadedImgOnce ||
-                  (loadedImgOnce && loadedImgOnce !== query)
-                ) {
-                  fetchImgResults(query);
-                }
-              }}
-              className={`flex-1 px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center justify-center gap-2 text-sm ${
-                tab === "images"
-                  ? "text-white shadow-lg"
-                  : "text-zinc-400 cursor-pointer hover:text-zinc-200 hover:bg-zinc-800/50"
-              }`}
-              style={{
-                background:
-                  tab === "images"
-                    ? "linear-gradient(135deg, #065f46, #047857, #059669)"
-                    : "transparent",
-              }}
-            >
-              <Image className="w-3 h-3" />
-              Images
-            </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Main Content - no grid */}
-      <div className="relative z-10 flex-1 w-full max-w-6xl mx-auto flex flex-col">
-        <div className="flex-1 flex flex-col">
-          <div className="bg-zinc-900/30 backdrop-blur-sm rounded-2xl border border-zinc-700/50 p-6 flex-1 flex flex-col min-h-96">
-            <Suspense
-              fallback={
-                <div className="text-center text-zinc-400 flex flex-col items-center gap-4 py-12">
-                  <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-                  <p>Loading search results…</p>
-                </div>
-              }
-            >
-              {tab === "text" ? (
+      {/* Enhanced Main Content */}
+      <div
+        className={`relative z-10 flex-1 w-full max-w-7xl mx-auto transition-all duration-700 delay-400 ${
+          showAnimations
+            ? "translate-y-0 opacity-100"
+            : "translate-y-8 opacity-0"
+        }`}
+      >
+        <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+          <div className="p-4 sm:p-6 min-h-[500px] flex flex-col">
+            <Suspense fallback={renderLoadingState(tab)}>
+              {error ? (
+                renderErrorState()
+              ) : tab === "text" ? (
                 loading ? (
-                  <div className="text-center text-zinc-400 flex flex-col items-center gap-4 py-12">
-                    <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-                    <p>Searching…</p>
-                  </div>
-                ) : !data || data.results.length === 0 ? (
-                  <div className="text-center text-zinc-400 py-12">
-                    No results found for <strong>{query}</strong>.
-                  </div>
+                  renderLoadingState("text")
+                ) : data && data.results.length > 0 ? (
+                  <SearchClient page={pageNum} query={query} tab={tab} />
                 ) : (
-                  <SearchClient data={data} />
+                  renderEmptyState("text")
                 )
               ) : loadingImg ? (
-                <div className="text-center text-zinc-400 flex flex-col items-center gap-4 py-12">
-                  <div className="w-8 h-8 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
-                  <p>Searching images…</p>
-                </div>
-              ) : !imgData || imgData.results.length === 0 ? (
-                <div className="text-center text-zinc-400 py-12">
-                  No image results found for <strong>{query}</strong>.
-                </div>
+                renderLoadingState("images")
+              ) : imgData && imgData.results.length > 0 ? (
+                <SearchImagesClient page={pageNum} query={query} tab={tab} />
               ) : (
-                <SearchImagesClient data={imgData} />
+                renderEmptyState("images")
               )}
             </Suspense>
           </div>
         </div>
       </div>
+
+      {/* Results count indicator */}
+      {((tab === "text" && data?.results.length) ||
+        (tab === "images" && imgData?.results.length)) && (
+        <div className="fixed bottom-6 right-6 bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl px-4 py-2 text-sm text-zinc-300 shadow-2xl animate-pulse">
+          <span className="font-medium">
+            {tab === "text" ? data?.results.length : imgData?.results.length}{" "}
+            results
+          </span>
+        </div>
+      )}
     </div>
   );
 };

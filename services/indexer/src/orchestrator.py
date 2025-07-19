@@ -173,7 +173,7 @@ class ModernIndexer:
             )
 
             language = doc.get("language", "simple")
-            if language == "chinese" or language == "japanese":
+            if language in {"chinese", "japanese", None, ""}:
                 language = "simple"
             supabase_rows.append(
                 {
@@ -185,33 +185,35 @@ class ModernIndexer:
                 }
             )
 
-        imgs_to_embed = [self.build_image_caption(img) for img in images]
+        valid_images = []
+        captions = []
+        for img in images:
+            caption = self.build_image_caption(img)
+            if caption:
+                valid_images.append(img)
+                captions.append(caption)
+
         img_embeddings = (
-            self.model.encode(imgs_to_embed, show_progress_bar=False)
-            if imgs_to_embed
-            else []
+            self.model.encode(captions, show_progress_bar=False) if captions else []
         )
 
-        for j, img in enumerate(images):
-            if not imgs_to_embed[j]:
-                continue
-
-            img_id = self.generate_doc_id(img.get("src", f"img-{j}"))
+        for img, embedding, caption in zip(valid_images, img_embeddings, captions):
+            img_id = img.get("id", self.generate_doc_id(img.get("src")))
             img_payload = {
                 "src": img.get("src"),
                 "alt": img.get("alt", ""),
                 "title": img.get("title", ""),
-                "caption": imgs_to_embed[j],
-                "page_url": img.get("url"),
-                "page_title": img.get("title", ""),
-                "page_description": img.get("description", ""),
+                "caption": caption,
+                "page_url": img.get("page_url"),
+                "page_title": img.get("page_title", ""),
+                "page_description": img.get("page_description", ""),
                 "timestamp": img.get("timestamp"),
             }
 
             image_points.append(
                 PointStruct(
                     id=img_id,
-                    vector=img_embeddings[j],
+                    vector=embedding,
                     payload=img_payload,
                 )
             )
@@ -220,15 +222,9 @@ class ModernIndexer:
         self._upsert_supabase(supabase_rows)
 
         batch_size = getattr(self.config, "batch_size", 100)
-        n = math.ceil(len(image_points) / batch_size)
-        for i in range(n):
-            low = batch_size * i
-            high = batch_size * (i + 1)
-            if i == n - 1:
-                high = len(image_points)
-            self._upsert_qdrant(
-                self.collection_name_images, image_points[low:high], "images"
-            )
+        for i in range(0, len(image_points), batch_size):
+            batch = image_points[i : i + batch_size]
+            self._upsert_qdrant(self.collection_name_images, batch, "images")
 
     def _upsert_qdrant(self, collection: str, points: list, label: str) -> None:
         """

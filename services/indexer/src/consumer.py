@@ -70,7 +70,6 @@ async def run_consumer(indexer: Any, config: Any, stop_event: asyncio.Event) -> 
                 continue
 
             try:
-                log.info(f"{total_consumed} msg received")
                 with MESSAGE_PROCESSING_SECONDS.time():
                     value = msg.value().decode("utf-8")
                     parsed_page = json.loads(value)
@@ -78,6 +77,7 @@ async def run_consumer(indexer: Any, config: Any, stop_event: asyncio.Event) -> 
 
                     MESSAGES_CONSUMED.inc()
                     total_consumed += 1
+                    log.info(f"{total_consumed} msg received")
 
                 if len(batch) >= batch_size:
                     await _process_batch(indexer, batch)

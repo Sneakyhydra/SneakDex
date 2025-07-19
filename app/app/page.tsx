@@ -1,13 +1,27 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Sparkles, Zap, Globe, Compass } from "lucide-react";
+import { Search, Zap, Globe, Compass } from "lucide-react";
+import SearchForm from "@/app/_components/SearchForm";
+import { useAppContext } from "./_contexts/AppContext";
 
 const Home = () => {
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(true);
+
+  const updateUrl = ({
+    newQuery,
+    newTab,
+    newPage,
+  }: {
+    newQuery: string;
+    newTab: string;
+    newPage: number;
+  }) => {
+    router.push(
+      `/search?q=${encodeURIComponent(newQuery)}&t=${newTab}&p=${newPage}`
+    );
+  };
+
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [showAnimations, setShowAnimations] = useState(false);
   const [particles, setParticles] = useState<
@@ -19,6 +33,16 @@ const Home = () => {
       duration: number;
     }[]
   >([]);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const {
+    isMobile,
+    setIsMobile,
+    loading,
+    loadingImg,
+    searchQuery,
+    setSearchQuery,
+  } = useAppContext();
 
   useEffect(() => {
     // Generate particles on client side only
@@ -47,15 +71,31 @@ const Home = () => {
     };
   }, []);
 
-  const handleSearch = () => {
-    const trimmedQuery = searchQuery.trim();
-    if (trimmedQuery === "") {
-      return;
-    }
+  // Mobile detection
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
 
-    setSearchQuery("");
-    router.push(`/search?q=${encodeURIComponent(trimmedQuery)}`);
-  };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Focus search on Ctrl/Cmd + K
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <main className="relative flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-zinc-950 via-neutral-900 to-stone-900 px-4 overflow-hidden">
@@ -126,67 +166,18 @@ const Home = () => {
             </div>
           </div>
 
-          <div
-            className={`w-full max-w-2xl min-w-72 transition-all duration-700 delay-200 ${
-              showAnimations
-                ? "translate-y-0 opacity-100"
-                : "translate-y-8 opacity-0"
-            }`}
-          >
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSearch();
-              }}
-              className={`px-3 relative flex flex-col justify-between sm:flex-row items-center bg-zinc-900/70 backdrop-blur-xl border border-zinc-700/50 rounded-2xl py-1.5 gap-2 transition-all duration-300 ${
-                isSearchFocused
-                  ? "border-emerald-400/50 shadow-md shadow-emerald-500/10"
-                  : "hover:border-zinc-600/50"
-              }`}
-            >
-              <div className="flex items-center w-full flex-grow">
-                {/* Logo — now animated & interactive */}
-                <div
-                  className={`pr-2 transition-all duration-700 ${
-                    showAnimations
-                      ? "opacity-100 translate-x-0"
-                      : "opacity-0 -translate-x-4"
-                  }`}
-                >
-                  <img
-                    src="/favicon.ico"
-                    alt="SneakDex Logo"
-                    className="w-6 h-6 transition-transform duration-300 hover:scale-110 hover:drop-shadow-[0_0_6px_#34d399]"
-                  />
-                </div>
-
-                {/* Input */}
-                <input
-                  type="text"
-                  placeholder="Search for anything…"
-                  className="flex-grow w-full px-2 py-2 bg-transparent text-zinc-100 placeholder-zinc-400 focus:outline-none text-sm sm:text-base"
-                  value={searchQuery}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setSearchQuery(e.target.value)
-                  }
-                  onFocus={() => setIsSearchFocused(true)}
-                  onBlur={() => setIsSearchFocused(false)}
-                />
-              </div>
-
-              {/* Button */}
-              <button
-                type="submit"
-                className="relative cursor-pointer w-full sm:w-auto px-4 py-2 text-sm text-white rounded-lg font-medium transition-all duration-300 hover:scale-105 active:scale-95 flex items-center justify-center gap-1 hover:brightness-110"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #065f46, #047857, #059669)",
-                }}
-              >
-                <span>Search</span>
-              </button>
-            </form>
-          </div>
+          <SearchForm
+            showAnimations={showAnimations}
+            searchQuery={searchQuery}
+            searchInputRef={searchInputRef}
+            query=""
+            isMobile={isMobile}
+            setSearchQuery={setSearchQuery}
+            loading={loading}
+            loadingImg={loadingImg}
+            tab="text"
+            updateUrl={updateUrl}
+          />
         </div>
 
         {/* Feature indicators */}
