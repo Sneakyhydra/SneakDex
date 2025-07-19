@@ -242,7 +242,7 @@ const SearchClient = ({
                   <div className="flex items-center gap-2 text-xs">
                     <Globe className="w-3 h-3 text-zinc-500" />
                     <span className="text-zinc-400 font-mono truncate">
-                      {getDomainFromUrl(result.url)}
+                      {result.url}
                     </span>
                   </div>
                 </div>
