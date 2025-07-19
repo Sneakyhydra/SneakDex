@@ -168,11 +168,11 @@ func (c *Config) validateCrawling() error {
 		}
 	}
 
-	if c.CrawlDepth < 1 || c.CrawlDepth > 10 {
+	if c.CrawlDepth < 0 || c.CrawlDepth > 10 {
 		return &ConfigError{
 			Field:   "CRAWL_DEPTH",
 			Value:   fmt.Sprintf("%d", c.CrawlDepth),
-			Reason:  "must be between 1 and 10 to prevent infinite crawling",
+			Reason:  "must be between 0 and 10 to prevent infinite crawling",
 			Example: "3",
 		}
 	}

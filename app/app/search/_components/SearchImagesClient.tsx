@@ -260,7 +260,7 @@ const SearchImagesClient = ({
           <div>
             <p className="text-zinc-300 text-sm font-medium">
               Top {totalResults.toLocaleString()} images. Searched{" "}
-              {imgData.totalAvailable.qdrant} documents.
+              {imgData.totalAvailable.qdrant} images.
             </p>
             <p className="text-zinc-500 text-xs">
               Source: <span className="text-emerald-400">{imgData.source}</span>

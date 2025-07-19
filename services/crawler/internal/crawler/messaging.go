@@ -26,7 +26,7 @@ func (c *Crawler) initializeKafka() error {
 	kafkaConfig := sarama.NewConfig()
 
 	// Set Kafka producer configurations for AsyncProducer
-	kafkaConfig.Producer.RequiredAcks = sarama.WaitForLocal // Faster than WaitForAll
+	kafkaConfig.Producer.RequiredAcks = sarama.WaitForAll // Faster than WaitForAll
 	kafkaConfig.Producer.Retry.Max = c.Cfg.KafkaRetryMax
 	kafkaConfig.Producer.Retry.Backoff = 100 * time.Millisecond
 	kafkaConfig.Producer.Return.Successes = true
