@@ -87,11 +87,11 @@ impl Config {
     }
 
     fn validate_content_length(&self) -> Result<(), ConfigError> {
-        if self.min_content_length < 10 {
+        if self.min_content_length < 1 {
             return Err(ConfigError {
                 field: "min_content_length",
                 value: self.min_content_length.to_string(),
-                reason: "must be at least 10 bytes",
+                reason: "must be at least 1 bytes",
                 example: "50",
             });
         }

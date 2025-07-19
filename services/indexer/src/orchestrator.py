@@ -6,6 +6,7 @@ Orchestrates the ModernIndexer service:
 """
 
 import logging
+import math
 import uuid
 
 from sentence_transformers import SentenceTransformer
@@ -100,9 +101,33 @@ class ModernIndexer:
 
         points, image_points, supabase_rows = [], [], []
 
+        unique_docs = {}
+        unique_imgs = {}
         for i, doc in enumerate(documents):
             doc_id = self.generate_doc_id(doc.get("url", f"doc-{i}"))
+            doc["id"] = doc_id
+            unique_docs[doc_id] = doc
+
             images = [
+                img
+                for img in doc.get("images", [])
+                if img.get("src") and img.get("src") != "about:blank"
+            ]
+            for j, img in enumerate(images):
+                img_id = self.generate_doc_id(img.get("src", f"img-{j}"))
+                img["id"] = img_id
+                img["page_url"] = doc.get("url")
+                img["page_title"] = doc.get("title", "")
+                img["page_description"] = doc.get("description", "")
+                img["timestamp"] = doc.get("timestamp")
+                unique_imgs[img_id] = img
+
+        documents = list(unique_docs.values())
+        images = list(unique_imgs.values())
+
+        for i, doc in enumerate(documents):
+            doc_id = doc.get("id", self.generate_doc_id(doc.get("url", f"doc-{i}")))
+            doc_images = [
                 img
                 for img in doc.get("images", [])
                 if img.get("src") and img.get("src") != "about:blank"
@@ -113,7 +138,7 @@ class ModernIndexer:
                 "title": doc.get("title", ""),
                 "description": doc.get("description", ""),
                 "headings": doc.get("headings", [])[:3],
-                "images": images[:3],
+                "images": doc_images[:3],
                 "language": doc.get("language", ""),
                 "timestamp": doc.get("timestamp"),
                 "content_type": doc.get("content_type"),
@@ -128,50 +153,63 @@ class ModernIndexer:
                 )
             )
 
+            language = doc.get("language", "simple")
+            if language == "chinese" or language == "japanese":
+                language = "simple"
             supabase_rows.append(
                 {
                     "id": doc_id,
                     "url": doc.get("url"),
                     "title": doc.get("title"),
-                    "lang": doc.get("language", ""),
+                    "lang": language,
                     "_tmp_content": doc.get("cleaned_text", ""),
                 }
             )
 
-            imgs_to_embed = [self.build_image_caption(img) for img in images]
-            img_embeddings = (
-                self.model.encode(imgs_to_embed, show_progress_bar=False)
-                if imgs_to_embed
-                else []
+        imgs_to_embed = [self.build_image_caption(img) for img in images]
+        img_embeddings = (
+            self.model.encode(imgs_to_embed, show_progress_bar=False)
+            if imgs_to_embed
+            else []
+        )
+
+        for j, img in enumerate(images):
+            if not imgs_to_embed[j]:
+                continue
+
+            img_id = self.generate_doc_id(img.get("src", f"img-{j}"))
+            img_payload = {
+                "src": img.get("src"),
+                "alt": img.get("alt", ""),
+                "title": img.get("title", ""),
+                "caption": imgs_to_embed[j],
+                "page_url": img.get("url"),
+                "page_title": img.get("title", ""),
+                "page_description": img.get("description", ""),
+                "timestamp": img.get("timestamp"),
+            }
+
+            image_points.append(
+                PointStruct(
+                    id=img_id,
+                    vector=img_embeddings[j],
+                    payload=img_payload,
+                )
             )
 
-            for j, img in enumerate(images):
-                if not imgs_to_embed[j]:
-                    continue
-
-                img_id = self.generate_doc_id(img.get("src", f"img-{i}-{j}"))
-                img_payload = {
-                    "src": img.get("src"),
-                    "alt": img.get("alt", ""),
-                    "title": img.get("title", ""),
-                    "caption": imgs_to_embed[j],
-                    "page_url": doc.get("url"),
-                    "page_title": doc.get("title", ""),
-                    "page_description": doc.get("description", ""),
-                    "timestamp": doc.get("timestamp"),
-                }
-
-                image_points.append(
-                    PointStruct(
-                        id=img_id,
-                        vector=img_embeddings[j],
-                        payload=img_payload,
-                    )
-                )
-
         self._upsert_qdrant(self.collection_name, points, "documents")
-        self._upsert_qdrant(self.collection_name_images, image_points, "images")
         self._upsert_supabase(supabase_rows)
+
+        batch_size = getattr(self.config, "batch_size", 100)
+        n = math.ceil(len(image_points) / batch_size)
+        for i in range(n):
+            low = batch_size * i
+            high = batch_size * (i + 1)
+            if i == n - 1:
+                high = len(image_points)
+            self._upsert_qdrant(
+                self.collection_name_images, image_points[low:high], "images"
+            )
 
     def _upsert_qdrant(self, collection: str, points: list, label: str) -> None:
         """

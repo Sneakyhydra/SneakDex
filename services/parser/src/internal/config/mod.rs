@@ -78,7 +78,7 @@ fn default_max_content_length() -> usize {
     5_242_880
 }
 fn default_min_content_length() -> usize {
-    50
+    1
 }
 fn default_log_level() -> String {
     "info".into()
