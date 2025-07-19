@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, RefObject } from "react";
+import { useState, useCallback, RefObject, useEffect } from "react";
 import { Search, Command } from "lucide-react";
 
 const SearchForm = ({
@@ -11,7 +11,9 @@ const SearchForm = ({
   isMobile,
   setSearchQuery,
   loading = false,
+  setLoading,
   loadingImg = false,
+  setLoadingImg,
   tab,
   updateUrl,
 }: {
@@ -22,7 +24,9 @@ const SearchForm = ({
   isMobile: boolean;
   setSearchQuery: (s: string) => void;
   loading: boolean;
+  setLoading: (b: boolean) => void;
   loadingImg: boolean;
+  setLoadingImg: (b: boolean) => void;
   tab: string;
   updateUrl: ({
     newQuery,
@@ -53,6 +57,15 @@ const SearchForm = ({
     },
     [searchQuery, query]
   );
+
+  useEffect(() => {
+    setSearchQuery(query);
+  }, [query]);
+
+  useEffect(() => {
+    setLoading(false);
+    setLoadingImg(false);
+  }, []);
 
   return (
     <div

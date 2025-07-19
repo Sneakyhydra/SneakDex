@@ -153,6 +153,10 @@ const SearchPage = () => {
     setData(null);
     setDataQuery(null);
 
+    if (q.length < 1 || q.length > 200) {
+      return;
+    }
+
     try {
       const res = await fetch(`/api/search`, {
         method: "POST",
@@ -380,7 +384,9 @@ const SearchPage = () => {
             isMobile={isMobile}
             setSearchQuery={setSearchQuery}
             loading={loading}
+            setLoading={setLoading}
             loadingImg={loadingImg}
+            setLoadingImg={setLoadingImg}
             tab={tab}
             updateUrl={updateUrl}
           />
@@ -466,14 +472,24 @@ const SearchPage = () => {
                 loading ? (
                   renderLoadingState("text")
                 ) : data && data.results.length > 0 ? (
-                  <SearchClient page={pageNum} query={query} tab={tab} />
+                  <SearchClient
+                    page={pageNum}
+                    query={query}
+                    tab={tab}
+                    updateUrl={updateUrl}
+                  />
                 ) : (
                   renderEmptyState("text")
                 )
               ) : loadingImg ? (
                 renderLoadingState("images")
               ) : imgData && imgData.results.length > 0 ? (
-                <SearchImagesClient page={pageNum} query={query} tab={tab} />
+                <SearchImagesClient
+                  page={pageNum}
+                  query={query}
+                  tab={tab}
+                  updateUrl={updateUrl}
+                />
               ) : (
                 renderEmptyState("images")
               )}

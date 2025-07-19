@@ -39,7 +39,9 @@ const Home = () => {
     isMobile,
     setIsMobile,
     loading,
+    setLoading,
     loadingImg,
+    setLoadingImg,
     searchQuery,
     setSearchQuery,
   } = useAppContext();
@@ -174,7 +176,9 @@ const Home = () => {
             isMobile={isMobile}
             setSearchQuery={setSearchQuery}
             loading={loading}
+            setLoading={setLoading}
             loadingImg={loadingImg}
+            setLoadingImg={setLoadingImg}
             tab="text"
             updateUrl={updateUrl}
           />

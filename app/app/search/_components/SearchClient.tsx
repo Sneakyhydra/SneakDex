@@ -1,5 +1,5 @@
 "use client";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ExternalLink,
   Clock,
@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { ImageType } from "../../_types/ResponseTypes";
 import {
@@ -24,13 +23,12 @@ const SearchClient = ({
   page,
   query,
   tab,
+  updateUrl,
 }: {
   page: number;
   query: string;
   tab: string;
-}) => {
-  const router = useRouter();
-  const updateUrl = ({
+  updateUrl: ({
     newQuery,
     newTab,
     newPage,
@@ -38,12 +36,8 @@ const SearchClient = ({
     newQuery: string;
     newTab: string;
     newPage: number;
-  }) => {
-    router.push(
-      `/search?q=${encodeURIComponent(newQuery)}&t=${newTab}&p=${newPage}`
-    );
-  };
-
+  }) => void;
+}) => {
   const { data } = useAppContext();
 
   if (!data) {
@@ -110,10 +104,11 @@ const SearchClient = ({
   const startIndex = (page - 1) * RESULTS_PER_PAGE + 1;
   const endIndex = Math.min(startIndex + RESULTS_PER_PAGE - 1, totalResults);
 
-  if (page > totalPages) {
-    updateUrl({ newQuery: query, newTab: tab, newPage: totalPages });
-    return;
-  }
+  useEffect(() => {
+    if (page > totalPages) {
+      updateUrl({ newQuery: query, newTab: tab, newPage: totalPages });
+    }
+  }, [page]);
 
   const paginatedResults = useMemo(() => {
     return results.slice(startIndex - 1, endIndex);
