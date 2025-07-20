@@ -340,11 +340,10 @@ export async function POST(req: Request) {
   }
 
   function domainBoost(r: HybridResult, cleanQuery: string) {
-    const domainBoostWeight = 0.3; // adjust this as needed
-
     const urlDomain = getDomainFromUrl(r.url || "");
     const queryWords = cleanQuery.toLowerCase().split(/\s+/);
 
+    const domainBoostWeight = 1.0 / queryWords.length;
     const hasDomainMatch = queryWords.some((word) => urlDomain.includes(word));
     return hasDomainMatch ? domainBoostWeight : 0;
   }

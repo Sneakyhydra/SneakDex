@@ -11,12 +11,10 @@ import logging
 import uuid
 import re
 import time
-import hashlib
-from typing import List, Dict, Tuple, Set, Union
+from typing import List, Dict
 from urllib.parse import urlparse, unquote
 from dataclasses import dataclass
 
-import numpy as np
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
@@ -135,38 +133,10 @@ class ModernIndexer:
             log.error(f"Failed to ensure Qdrant collections: {e}")
             raise
 
-    def _validate_document(self, doc: dict) -> Tuple[bool, str]:
-        """Validate document quality and completeness"""
-        if not doc.get("url"):
-            return False, "Missing URL"
-
-        # if not doc.get("title") and not doc.get("cleaned_text"):
-        #     return False, "Missing both title and content"
-
-        # content = doc.get("cleaned_text", "")
-        # if content and len(content.strip()) < self.min_content_length:
-        #     return False, f"Content too short ({len(content)} chars)"
-
-        # Check for duplicate URLs
-        url = doc.get("url", "")
-        if url:
-            url = url.strip()
-        else:
-            url = ""
-
-        return True, "Valid"
-
-    def _compute_content_hash(self, doc: dict) -> str:
-        """Compute hash for content-based deduplication"""
-        content = doc.get("cleaned_text", "")
-        title = doc.get("title", "")
-        combined = f"{title}|{content}".strip()
-        return hashlib.md5(combined.encode()).hexdigest()
-
     def _clean_headings(self, headings: List[Dict]) -> List[Dict]:
         """Clean and validate headings"""
         cleaned = []
-        for heading in headings[:5]:  # Limit to 5 headings
+        for heading in headings:
             if isinstance(heading, dict):
                 text = heading.get("text", "")
                 if text:
@@ -199,9 +169,9 @@ class ModernIndexer:
         title = doc.get("title", "")
         if title:
             title = title.strip()
-            pieces.extend([title])  # Double weight for title
+            pieces.extend([title, title])  # Double weight for title
 
-        # 5. URL semantic extraction
+        # 2. URL semantic extraction
         url = doc.get("url", "")
         if url:
             url = url.strip()
@@ -213,7 +183,7 @@ class ModernIndexer:
             if domain_context:
                 pieces.extend([domain_context, domain_context, domain_context])
 
-        # 2. Description - crucial for semantic understanding
+        # 3. Description - crucial for semantic understanding
         description = doc.get("description")
         if description:
             description = description.strip()
@@ -222,7 +192,7 @@ class ModernIndexer:
         if description and description != title:  # Avoid duplication
             pieces.append(description)
 
-        # 3. Clean and structure headings
+        # 4. Clean and structure headings
         headings = doc.get("headings", [])
         if headings:
             headings = self._clean_headings(headings)
@@ -234,7 +204,7 @@ class ModernIndexer:
             if len(h1_headings) > 1:
                 pieces.append(" → ".join(h1_headings))
 
-        # 4. Main content with smart truncation
+        # 5. Main content with smart truncation
         content = doc.get("cleaned_text", "")
         if content:
             content = content.strip()
@@ -417,24 +387,137 @@ class ModernIndexer:
 
         log.info(f"Starting batch indexing of {len(documents)} documents")
 
-        # Phase 1: Validation and deduplication
-        valid_docs, valid_images = self._process_and_validate_batch(documents, stats)
-
-        if not valid_docs:
-            log.warning("No valid documents to index after validation")
-            return stats
-
-        # Phase 2: Generate embeddings
         embedding_start = time.time()
-        doc_embeddings, img_embeddings = self._generate_embeddings(
-            valid_docs, valid_images
-        )
-        stats.embedding_time = time.time() - embedding_start
 
-        # Phase 3: Create points and upsert
-        self._create_and_upsert_points(
-            valid_docs, valid_images, doc_embeddings, img_embeddings, stats
-        )
+        try:
+            points, image_points, supabase_rows = [], [], []
+            unique_docs = {}
+            unique_imgs = {}
+
+            for i, doc in enumerate(documents):
+                doc_id = self.generate_doc_id(doc.get("url", f"doc-{i}"))
+                doc["id"] = doc_id
+                unique_docs[doc_id] = doc
+
+                images = [
+                    img
+                    for img in doc.get("images", [])
+                    if img.get("src") and img.get("src") != "about:blank"
+                ]
+                for j, img in enumerate(images):
+                    img_id = self.generate_doc_id(img.get("src", f"img-{j}"))
+                    img["id"] = img_id
+                    img["page_url"] = doc.get("url")
+                    img["page_title"] = doc.get("title", "")
+                    img["page_description"] = doc.get("description", "")
+                    img["timestamp"] = doc.get("timestamp")
+                    unique_imgs[img_id] = img
+
+            documents = list(unique_docs.values())
+            images = list(unique_imgs.values())
+
+            texts_to_embed = [self.build_embedding_text(doc) for doc in documents]
+            embeddings = self.model.encode(
+                texts_to_embed,
+                show_progress_bar=len(documents) > 10,
+                batch_size=min(25, len(documents)),
+            )
+
+            for i, doc in enumerate(documents):
+                doc_id = doc["id"]
+                doc_images = [
+                    img
+                    for img in doc.get("images", [])
+                    if img.get("src") and img.get("src") != "about:blank"
+                ]
+
+                payload = {
+                    "url": doc.get("url"),
+                    "title": doc.get("title", ""),
+                    "description": doc.get("description", ""),
+                    "headings": doc.get("headings", [])[:3],
+                    "images": doc_images[:3],
+                    "language": doc.get("language", ""),
+                    "timestamp": doc.get("timestamp"),
+                    "content_type": doc.get("content_type"),
+                    "text_snippet": doc.get("cleaned_text", "")[:500],
+                }
+
+                points.append(
+                    PointStruct(
+                        id=doc_id,
+                        vector=embeddings[i],
+                        payload=payload,
+                    )
+                )
+
+                language = doc.get("language", "simple")
+                if language in {"chinese", "japanese", None, ""}:
+                    language = "simple"
+                supabase_rows.append(
+                    {
+                        "id": doc_id,
+                        "url": doc.get("url"),
+                        "title": doc.get("title"),
+                        "lang": language,
+                        "_tmp_content": doc.get("cleaned_text", ""),
+                    }
+                )
+
+            valid_images = []
+            captions = []
+            for img in images:
+                caption = self.build_image_caption(img)
+                if caption:
+                    valid_images.append(img)
+                    captions.append(caption)
+
+            img_embeddings = (
+                self.model.encode(captions, show_progress_bar=False) if captions else []
+            )
+
+            for img, embedding, caption in zip(valid_images, img_embeddings, captions):
+                img_id = img["id"]
+                img_payload = {
+                    "src": img.get("src"),
+                    "alt": img.get("alt", ""),
+                    "title": img.get("title", ""),
+                    "caption": caption,
+                    "page_url": img.get("page_url"),
+                    "page_title": img.get("page_title", ""),
+                    "page_description": img.get("page_description", ""),
+                    "timestamp": img.get("timestamp"),
+                }
+
+                image_points.append(
+                    PointStruct(
+                        id=img_id,
+                        vector=embedding,
+                        payload=img_payload,
+                    )
+                )
+
+            stats.embedding_time = time.time() - embedding_start
+
+            self._upsert_qdrant_with_retry(self.collection_name, points, "documents")
+            if (
+                self.config.max_docs_supabase
+                and stats.successful_docs_supabase >= self.config.max_docs_supabase
+            ):
+                pass
+            else:
+                self._upsert_supabase_with_retry(supabase_rows, stats)
+
+            batch_size = getattr(self.config, "batch_size", 100)
+            for i in range(0, len(image_points), batch_size):
+                batch = image_points[i : i + batch_size]
+                self._upsert_qdrant_with_retry(
+                    self.collection_name_images, batch, "images"
+                )
+
+            stats.successful_docs += len(points)
+        except Exception as e:
+            print(e)
 
         stats.processing_time = time.time() - start_time
 
@@ -442,237 +525,6 @@ class ModernIndexer:
         self._log_indexing_stats(stats)
 
         return stats
-
-    def _process_and_validate_batch(
-        self, documents: List[dict], stats: IndexingStats
-    ) -> Tuple[List[dict], List[dict]]:
-        """Process and validate documents and images"""
-        valid_docs = []
-        all_images = []
-
-        for doc in documents:
-            # Validate document
-            is_valid, reason = self._validate_document(doc)
-            if not is_valid:
-                log.debug(f"Skipping document {doc.get('url', 'unknown')}: {reason}")
-                if "duplicate" in reason.lower():
-                    stats.duplicate_docs += 1
-                else:
-                    stats.failed_docs += 1
-                continue
-
-            # Content-based deduplication
-            # content_hash = self._compute_content_hash(doc)
-            # if content_hash in self._content_hashes:
-            #     log.debug(f"Skipping duplicate content: {doc.get('url')}")
-            #     stats.duplicate_docs += 1
-            #     continue
-
-            # Process document
-            doc_id = self.generate_doc_id(doc.get("url", "empty_url"))
-            doc["id"] = doc_id
-            # doc["content_hash"] = content_hash
-
-            valid_docs.append(doc)
-            # self._content_hashes.add(content_hash)
-
-            # Process images
-            images = self._extract_and_process_images(doc)
-            all_images.extend(images)
-            stats.total_images += len(images)
-
-        stats.successful_docs = len(valid_docs)
-        return valid_docs, all_images
-
-    def _extract_and_process_images(self, doc: dict) -> List[dict]:
-        """Extract and process images from document"""
-        images = []
-
-        for img in doc.get("images", []):
-            src = img.get("src", "")
-            if src:
-                src = src.strip()
-            else:
-                src = ""
-            if not src or src == "about:blank":
-                continue
-
-            img_id = self.generate_doc_id(src)
-            enhanced_img = {
-                **img,
-                "id": img_id,
-                "page_url": doc.get("url"),
-                "page_title": doc.get("title", ""),
-                "page_description": doc.get("description", ""),
-                "timestamp": doc.get("timestamp"),
-            }
-            images.append(enhanced_img)
-
-        return images
-
-    def _generate_embeddings(
-        self, documents: List[dict], images: List[dict]
-    ) -> Tuple[Union[np.ndarray, List], Union[np.ndarray, List]]:
-        """Generate embeddings with error handling and batching"""
-        doc_embeddings = []
-        img_embeddings = []
-
-        if documents:
-            log.info(f"Generating embeddings for {len(documents)} documents")
-            try:
-                texts = [self.build_embedding_text(doc) for doc in documents]
-                doc_embeddings = self.model.encode(
-                    texts,
-                    show_progress_bar=len(documents) > 10,
-                    batch_size=min(32, len(documents)),  # Optimize batch size
-                )
-            except Exception as e:
-                log.error(f"Failed to generate document embeddings: {e}")
-                raise
-
-        if images:
-            log.info(f"Generating embeddings for {len(images)} images")
-            try:
-                captions = [self.build_image_caption(img) for img in images]
-                valid_captions = [c for c in captions if c and c.strip()]
-
-                if valid_captions:
-                    img_embeddings = self.model.encode(
-                        valid_captions,
-                        show_progress_bar=len(valid_captions) > 10,
-                        batch_size=min(32, len(valid_captions)),
-                    )
-            except Exception as e:
-                log.error(f"Failed to generate image embeddings: {e}")
-                # Don't raise for images, continue without them
-
-        return doc_embeddings, img_embeddings
-
-    def _create_and_upsert_points(
-        self,
-        documents: List[dict],
-        images: List[dict],
-        doc_embeddings: Union[np.ndarray, List],
-        img_embeddings: Union[np.ndarray, List],
-        stats: IndexingStats,
-    ) -> None:
-        """Create points and upsert to Qdrant"""
-
-        # Create document points
-        doc_points = {}
-        supabase_rows = {}
-
-        for i, doc in enumerate(documents):
-            try:
-                payload = self._create_document_payload(doc)
-                # Handle both numpy array and list cases
-                embedding_vector = doc_embeddings[i]
-                if hasattr(embedding_vector, "tolist"):
-                    embedding_vector = embedding_vector.tolist()
-
-                point = PointStruct(
-                    id=doc["id"],
-                    vector=embedding_vector,
-                    payload=payload,
-                )
-                doc_points[doc["id"]] = point
-
-                # Prepare Supabase row
-                supabase_rows[doc["id"]] = self._create_supabase_row(doc)
-
-            except Exception as e:
-                log.error(f"Failed to create point for document {doc.get('url')}: {e}")
-                stats.failed_docs += 1
-
-        # Create image points
-        img_points = {}
-        for i, img in enumerate(images):
-            if i < len(img_embeddings):  # Ensure we have embedding
-                try:
-                    payload = self._create_image_payload(img)
-                    # Handle both numpy array and list cases
-                    embedding_vector = img_embeddings[i]
-                    if hasattr(embedding_vector, "tolist"):
-                        embedding_vector = embedding_vector.tolist()
-
-                    point = PointStruct(
-                        id=img["id"],
-                        vector=embedding_vector,
-                        payload=payload,
-                    )
-                    img_points[img["id"]] = point
-                    stats.successful_images += 1
-                except Exception as e:
-                    log.error(f"Failed to create point for image {img.get('src')}: {e}")
-                    stats.failed_images += 1
-
-        # convert to list
-        doc_points = list(doc_points.values())
-        img_points = list(img_points.values())
-        supabase_rows = list(supabase_rows.values())
-
-        # Upsert to Qdrant
-        self._upsert_qdrant_with_retry(self.collection_name, doc_points, "documents")
-
-        if img_points:
-            # Batch image upserts for better performance
-            for i in range(0, len(img_points), self.batch_size):
-                batch = img_points[i : i + self.batch_size]
-                self._upsert_qdrant_with_retry(
-                    self.collection_name_images, batch, "images"
-                )
-
-        # Upsert to Supabase
-        if (
-            self.config.max_docs_supabase
-            and stats.successful_docs_supabase >= self.config.max_docs_supabase
-        ):
-            pass
-        else:
-            self._upsert_supabase_with_retry(supabase_rows, stats)
-
-    def _create_document_payload(self, doc: dict) -> dict:
-        """Create optimized document payload"""
-        return {
-            "url": doc.get("url"),
-            "title": doc.get("title", ""),
-            "description": doc.get("description", ""),
-            "headings": self._clean_headings(doc.get("headings", []))[:3],
-            "images": doc.get("images", [])[:3],  # Limit payload size
-            "language": doc.get("language", ""),
-            "timestamp": doc.get("timestamp"),
-            "content_type": doc.get("content_type"),
-            "text_snippet": doc.get("cleaned_text", "")[:500],
-            "word_count": len(doc.get("cleaned_text", "").split()),
-            "content_hash": doc.get("content_hash"),
-        }
-
-    def _create_image_payload(self, img: dict) -> dict:
-        """Create optimized image payload"""
-        return {
-            "src": img.get("src"),
-            "alt": img.get("alt", ""),
-            "title": img.get("title", ""),
-            "caption": self.build_image_caption(img),
-            "page_url": img.get("page_url"),
-            "page_title": img.get("page_title", ""),
-            "page_description": img.get("page_description", ""),
-            "timestamp": img.get("timestamp"),
-        }
-
-    def _create_supabase_row(self, doc: dict) -> dict:
-        """Create Supabase row with proper language handling"""
-        language = doc.get("language", "simple")
-        if language in {"chinese", "japanese", None, ""}:
-            language = "simple"
-
-        return {
-            "id": doc["id"],
-            "url": doc.get("url"),
-            "title": doc.get("title"),
-            "lang": language,
-            "_tmp_content": doc.get("cleaned_text", ""),
-        }
 
     def _upsert_qdrant_with_retry(
         self, collection: str, points: List[PointStruct], label: str
