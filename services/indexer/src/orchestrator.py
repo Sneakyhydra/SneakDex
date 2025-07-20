@@ -656,7 +656,7 @@ class ModernIndexer:
                 )
 
         # Upsert to Supabase
-        # self._upsert_supabase_with_retry(supabase_rows)
+        self._upsert_supabase_with_retry(supabase_rows)
 
     def _create_document_payload(self, doc: dict) -> dict:
         """Create optimized document payload"""
