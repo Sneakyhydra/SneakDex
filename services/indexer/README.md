@@ -274,6 +274,19 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 ```
 
+Count function -
+```sql
+create or replace function get_estimated_count()
+returns table(estimated_count bigint) as $$
+begin
+  return query
+  select reltuples::bigint
+  from pg_class
+  where relname = 'documents';
+end;
+$$ language plpgsql;
+```
+
 Table summary-
 ```sql
 WITH stats AS (

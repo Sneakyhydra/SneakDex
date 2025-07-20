@@ -74,10 +74,6 @@ class ModernIndexer:
         self._initialize_qdrant()
         self._initialize_supabase()
 
-        # Cache for duplicate detection
-        self._url_cache: Set[str] = set()
-        self._content_hashes: Set[str] = set()
-
     def _initialize_model(self, model_name: str) -> None:
         """Initialize embedding model with proper error handling"""
         try:
@@ -157,8 +153,6 @@ class ModernIndexer:
             url = url.strip()
         else:
             url = ""
-        if url in self._url_cache:
-            return False, "Duplicate URL"
 
         return True, "Valid"
 
@@ -205,7 +199,7 @@ class ModernIndexer:
         title = doc.get("title", "")
         if title:
             title = title.strip()
-            pieces.extend([title, title, title])  # Double weight for title
+            pieces.extend([title])  # Double weight for title
 
         # 5. URL semantic extraction
         url = doc.get("url", "")
@@ -480,7 +474,6 @@ class ModernIndexer:
             # doc["content_hash"] = content_hash
 
             valid_docs.append(doc)
-            self._url_cache.add(doc.get("url", "empty_url"))
             # self._content_hashes.add(content_hash)
 
             # Process images
@@ -625,8 +618,10 @@ class ModernIndexer:
                 )
 
         # Upsert to Supabase
-        if self.config.max_docs_supabase and (
-            stats.successful_docs_supabase >= self.config.max_docs_supabase
+        # print(self.config)
+        if (
+            self.config.max_docs_supabase
+            and stats.successful_docs_supabase < self.config.max_docs_supabase
         ):
             self._upsert_supabase_with_retry(supabase_rows, stats)
 
@@ -782,12 +777,6 @@ class ModernIndexer:
             log.error(f"Failed to get vector count from Qdrant: {e}")
             return -1
 
-    def cleanup_cache(self) -> None:
-        """Clear internal caches to free memory"""
-        self._url_cache.clear()
-        self._content_hashes.clear()
-        log.info("Cleared internal caches")
-
     @staticmethod
     def generate_doc_id(source: str) -> str:
         """Generate a UUID5 for a given string."""
@@ -796,8 +785,3 @@ class ModernIndexer:
     def __enter__(self):
         """Context manager entry"""
         return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - cleanup resources"""
-        self.cleanup_cache()
-        log.info("ModernIndexer resources cleaned up")

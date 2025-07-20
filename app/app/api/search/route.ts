@@ -330,6 +330,25 @@ function generateCacheKey(
 
 // === MAIN HANDLER ===
 export async function POST(req: Request) {
+  function getDomainFromUrl(url: string): string {
+    try {
+      const u = new URL(url);
+      return u.hostname.replace(/^www\./, "").toLowerCase(); // e.g., example.com
+    } catch {
+      return "";
+    }
+  }
+
+  function domainBoost(r: HybridResult, cleanQuery: string) {
+    const domainBoostWeight = 0.3; // adjust this as needed
+
+    const urlDomain = getDomainFromUrl(r.url || "");
+    const queryWords = cleanQuery.toLowerCase().split(/\s+/);
+
+    const hasDomainMatch = queryWords.some((word) => urlDomain.includes(word));
+    return hasDomainMatch ? domainBoostWeight : 0;
+  }
+
   try {
     const body = await req.json();
     const {
@@ -607,7 +626,9 @@ export async function POST(req: Request) {
         .map((r) => ({
           ...r,
           hybridScore:
-            finalWeights.qdrant * r.qdrantScore + finalWeights.pg * r.pgScore,
+            finalWeights.qdrant * r.qdrantScore +
+            finalWeights.pg * r.pgScore +
+            domainBoost(r, cleanQuery),
         }))
         .sort((a, b) => b.hybridScore - a.hybridScore)
         .slice(0, top_k);
