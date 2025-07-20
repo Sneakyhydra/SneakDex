@@ -559,8 +559,8 @@ class ModernIndexer:
         """Create points and upsert to Qdrant"""
 
         # Create document points
-        doc_points = []
-        supabase_rows = []
+        doc_points = {}
+        supabase_rows = {}
 
         for i, doc in enumerate(documents):
             try:
@@ -575,17 +575,17 @@ class ModernIndexer:
                     vector=embedding_vector,
                     payload=payload,
                 )
-                doc_points.append(point)
+                doc_points[doc["id"]] = point
 
                 # Prepare Supabase row
-                supabase_rows.append(self._create_supabase_row(doc))
+                supabase_rows[doc["id"]] = self._create_supabase_row(doc)
 
             except Exception as e:
                 log.error(f"Failed to create point for document {doc.get('url')}: {e}")
                 stats.failed_docs += 1
 
         # Create image points
-        img_points = []
+        img_points = {}
         for i, img in enumerate(images):
             if i < len(img_embeddings):  # Ensure we have embedding
                 try:
@@ -600,11 +600,16 @@ class ModernIndexer:
                         vector=embedding_vector,
                         payload=payload,
                     )
-                    img_points.append(point)
+                    img_points[img["id"]] = point
                     stats.successful_images += 1
                 except Exception as e:
                     log.error(f"Failed to create point for image {img.get('src')}: {e}")
                     stats.failed_images += 1
+
+        # convert to list
+        doc_points = list(doc_points.values())
+        img_points = list(img_points.values())
+        supabase_rows = list(supabase_rows.values())
 
         # Upsert to Qdrant
         self._upsert_qdrant_with_retry(self.collection_name, doc_points, "documents")
