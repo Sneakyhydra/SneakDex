@@ -248,7 +248,49 @@ CREATE TRIGGER trg_update_content_tsv
 BEFORE INSERT ON documents
 FOR EACH ROW
 EXECUTE FUNCTION update_content_tsv_and_strip();
+```
 
+Search function -
+```sql
+CREATE OR REPLACE FUNCTION search_documents(q text, limit_count int)
+RETURNS TABLE (
+    id uuid,
+    url text,
+    title text,
+    rank double precision
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    d.id,
+    d.url,
+    d.title,
+    ts_rank(d.content_tsv, plainto_tsquery(q))::double precision AS rank
+  FROM documents d
+  WHERE d.content_tsv @@ plainto_tsquery(q)
+  ORDER BY rank DESC
+  LIMIT limit_count;
+END;
+$$ LANGUAGE plpgsql STABLE;
+```
+
+Table summary-
+```sql
+WITH stats AS (
+  SELECT count(*) AS cnt FROM documents
+), sizes AS (
+  SELECT 
+    pg_relation_size('documents') AS table_bytes,
+    pg_total_relation_size('documents') AS total_bytes,
+    pg_indexes_size('documents') AS index_bytes
+)
+SELECT 
+    s.cnt AS row_count,
+    pg_size_pretty(sz.table_bytes) AS table_size,
+    pg_size_pretty(sz.index_bytes) AS index_size,
+    pg_size_pretty(sz.total_bytes) AS total_size,
+    pg_size_pretty(sz.total_bytes / GREATEST(s.cnt,1)) AS avg_row_size
+FROM stats s, sizes sz;
 ```
 
 ### Configuration Examples
@@ -311,78 +353,56 @@ Add this to your `docker-compose.yml` alongside Kafka & other services:
 
 ```yaml
 indexer:
-  build: .
+  build:
+    context: ./services/indexer
   environment:
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
     - PYTHON_ENV=development
   env_file:
-    - .env
+    - ./services/indexer/.env
   volumes:
-    - .:/app
+    - ./services/indexer:/app
   working_dir: /app
   depends_on:
     kafka:
       condition: service_healthy
   networks:
     - sneakdex-network
+    - monitoring
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-    interval: 30s
-    timeout: 10s
+    interval: 10s
+    timeout: 5s
     retries: 3
-    start_period: 30s
+    start_period: 15s
   restart: unless-stopped
 ```
 
 or for production:
 ```yaml
-indexer-prod:
+indexer:
   build:
-    context: .
+    context: ./services/indexer
     dockerfile: Dockerfile.prod
   environment:
     - PYTHONUNBUFFERED=1
     - PYTHONDONTWRITEBYTECODE=1
     - PYTHON_ENV=production
   env_file:
-    - .env.production
+    - ./services/indexer/.env.production
   depends_on:
     kafka:
       condition: service_healthy
   networks:
     - sneakdex-network
+    - monitoring
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
     interval: 30s
     timeout: 5s
     retries: 3
-    start_period: 30s
-  restart: unless-stopped
-  deploy:
-    resources:
-      limits:
-        cpus: '2.0'
-        memory: 1G
-      reservations:
-        cpus: '1.0'
-        memory: 512M
-  security_opt:
-    - no-new-privileges:true
-  cap_drop:
-    - ALL
-  cap_add:
-    - NET_BIND_SERVICE
-  tmpfs:
-    - /tmp:noexec,nosuid,size=100m
-  logging:
-    driver: json-file
-    options:
-      max-size: "10m"
-      max-file: "3"
-  labels:
-    - "com.sneakdex.service=indexer"
-    - "com.sneakdex.environment=production"
+    start_period: 10s
 ```
 
 ## 🔗 API Endpoints

@@ -87,7 +87,7 @@ The SneakDex Web Crawler is a production-ready, distributed web crawling service
          │        Redis           │
   ┌──────┴────────────────────────┴──────┐
   │    Distributed URL Queue             │
-  │    - pending_urls (List)             │
+  │    - pending_urls (Lists depth wise) │
   │    - visited_urls (Set)              │
   │    - requeued_urls (Set)             │
   └─────────────────┬────────────────────┘
@@ -100,7 +100,7 @@ The SneakDex Web Crawler is a production-ready, distributed web crawling service
                     │
   ┌─────────────────┴─────────────────────┐
   │       Downstream Processors           │
-  │    (Parser, Indexer, etc.)            │
+  │    (Parser, Indexer)                  │
   └───────────────────────────────────────┘
 
 
@@ -309,12 +309,13 @@ Add this to your `docker-compose.yml` alongside Kafka & other services:
 
 ```yaml
 crawler:
-  build: .
+  build:
+    context: ./services/crawler
   init: true
   env_file:
-    - .env
+    - ./services/crawler/.env
   volumes:
-    - .:/app
+    - ./services/crawler:/app
     - go-mod-cache:/go/pkg/mod
   depends_on:
     kafka:
@@ -323,23 +324,24 @@ crawler:
       condition: service_healthy
   networks:
     - sneakdex-network
+    - monitoring
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
     interval: 10s
     timeout: 5s
     retries: 3
-    start_period: 30s
+    start_period: 15s
   restart: unless-stopped
 ```
 
 or for production:
 ```yaml
-crawler-prod:
+crawler:
   build:
-    context: .
+    context: ./services/crawler
     dockerfile: Dockerfile.prod
   env_file:
-    - .env.production
+    - ./services/crawler/.env.production
   depends_on:
     kafka:
       condition: service_healthy
@@ -347,38 +349,14 @@ crawler-prod:
       condition: service_healthy
   networks:
     - sneakdex-network
+    - monitoring
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
     interval: 10s
     timeout: 5s
     retries: 3
-    start_period: 30s
+    start_period: 10s
   restart: unless-stopped
-  deploy:
-    resources:
-      limits:
-        cpus: '1.0'
-        memory: 512M
-      reservations:
-        cpus: '0.5'
-        memory: 256M
-  security_opt:
-    - no-new-privileges:true
-  cap_drop:
-    - ALL
-  cap_add:
-    - NET_BIND_SERVICE
-  read_only: true
-  tmpfs:
-    - /tmp:noexec,nosuid,size=100m
-  logging:
-    driver: json-file
-    options:
-      max-size: "10m"
-      max-file: "3"
-  labels:
-    - "com.sneakdex.service=crawler"
-    - "com.sneakdex.environment=production"
 ```
 
 ## 🔗 API Endpoints
@@ -457,15 +435,16 @@ crawler_uptime_seconds 3661.23
 
 ### Metrics Exposed
 
-- `pages_processed_total`
-- `pages_successful_total`
-- `pages_failed_total`
-- `kafka_successful_total`
-- `kafka_failed_total`
-- `kafka_errored_total`
-- `redis_successful_total`
-- `redis_failed_total`
-- `redis_errored_total`
+- `crawler_inflight_pages`
+- `crawler_pages_processed_total`
+- `crawler_pages_successful_total`
+- `crawler_pages_failed_total`
+- `crawler_kafka_successful_total`
+- `crawler_kafka_failed_total`
+- `crawler_kafka_errored_total`
+- `crawler_redis_successful_total`
+- `crawler_redis_failed_total`
+- `crawler_redis_errored_total`
 - `crawler_uptime_seconds`
 
 ### Key Performance Indicators (KPIs)

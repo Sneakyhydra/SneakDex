@@ -162,11 +162,12 @@ Add this to your `docker-compose.yml` alongside Kafka & other services:
 
 ```yaml
 parser:
-  build: .
+  build:
+    context: ./services/parser
   env_file:
-    - .env
+    - ./services/parser/.env
   volumes:
-    - .:/app
+    - ./services/parser:/app
     - cargo-registry:/usr/local/cargo/registry
     - cargo-git:/usr/local/cargo/git
     - target-cache:/app/target
@@ -176,60 +177,37 @@ parser:
       condition: service_healthy
   networks:
     - sneakdex-network
+    - monitoring
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
     interval: 10s
     timeout: 5s
     retries: 3
-    start_period: 30s
+    start_period: 15s
   restart: unless-stopped
 ```
 
 or for production:
 ```yaml
-parser-prod:
+parser:
   build:
-    context: .
+    context: ./services/parser
     dockerfile: Dockerfile.prod
   env_file:
-    - .env.production
+    - ./services/parser/.env.production
   depends_on:
     kafka:
       condition: service_healthy
   networks:
     - sneakdex-network
+    - monitoring
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
     interval: 10s
     timeout: 5s
     retries: 3
-    start_period: 30s
+    start_period: 10s
   restart: unless-stopped
-  deploy:
-    resources:
-      limits:
-        cpus: '2.0'
-        memory: 1G
-      reservations:
-        cpus: '1.0'
-        memory: 512M
-  security_opt:
-    - no-new-privileges:true
-  cap_drop:
-    - ALL
-  cap_add:
-    - NET_BIND_SERVICE
-  read_only: true
-  tmpfs:
-    - /tmp:noexec,nosuid,size=100m
-  logging:
-    driver: json-file
-    options:
-      max-size: "10m"
-      max-file: "3"
-  labels:
-    - "com.sneakdex.service=parser"
-    - "com.sneakdex.environment=production"
 ```
 
 ## 🔗 API Endpoints
@@ -248,6 +226,7 @@ Sample Response:
 {
   "status": "healthy",
   "uptime_seconds": 1234,
+  "inflight_pages": 10,
   "pages_processed": 456,
   "pages_failed": 7,
   "kafka_errored": 1,
@@ -279,6 +258,7 @@ Prometheus-formatted metrics.
 
 ### Metrics Exposed
 
+- `parser_inflight_pages`
 - `parser_pages_processed`
 - `parser_pages_successful`
 - `parser_pages_failed`
