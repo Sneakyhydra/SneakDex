@@ -143,12 +143,12 @@ class ModernIndexer:
         if not doc.get("url"):
             return False, "Missing URL"
 
-        if not doc.get("title") and not doc.get("cleaned_text"):
-            return False, "Missing both title and content"
+        # if not doc.get("title") and not doc.get("cleaned_text"):
+        #     return False, "Missing both title and content"
 
-        content = doc.get("cleaned_text", "")
-        if content and len(content.strip()) < self.min_content_length:
-            return False, f"Content too short ({len(content)} chars)"
+        # content = doc.get("cleaned_text", "")
+        # if content and len(content.strip()) < self.min_content_length:
+        #     return False, f"Content too short ({len(content)} chars)"
 
         # Check for duplicate URLs
         url = doc.get("url", "")
@@ -248,6 +248,9 @@ class ModernIndexer:
             domain_context = self._extract_domain_context(url)
             if domain_context:
                 pieces.append(domain_context)
+
+            # add url directly
+            pieces.append(url)
 
         # 6. Metadata context
         self._add_metadata_context(doc, pieces)
@@ -496,20 +499,20 @@ class ModernIndexer:
                 continue
 
             # Content-based deduplication
-            content_hash = self._compute_content_hash(doc)
-            if content_hash in self._content_hashes:
-                log.debug(f"Skipping duplicate content: {doc.get('url')}")
-                stats.duplicate_docs += 1
-                continue
+            # content_hash = self._compute_content_hash(doc)
+            # if content_hash in self._content_hashes:
+            #     log.debug(f"Skipping duplicate content: {doc.get('url')}")
+            #     stats.duplicate_docs += 1
+            #     continue
 
             # Process document
             doc_id = self.generate_doc_id(doc.get("url", "empty_url"))
             doc["id"] = doc_id
-            doc["content_hash"] = content_hash
+            # doc["content_hash"] = content_hash
 
             valid_docs.append(doc)
             self._url_cache.add(doc.get("url", "empty_url"))
-            self._content_hashes.add(content_hash)
+            # self._content_hashes.add(content_hash)
 
             # Process images
             images = self._extract_and_process_images(doc)
