@@ -15,6 +15,8 @@ from typing import List, Dict
 from urllib.parse import urlparse, unquote
 from dataclasses import dataclass
 
+from src.monitor import MESSAGES_CONSUMED
+
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
@@ -500,13 +502,7 @@ class ModernIndexer:
             stats.embedding_time = time.time() - embedding_start
 
             self._upsert_qdrant_with_retry(self.collection_name, points, "documents")
-            if (
-                self.config.max_docs_supabase
-                and stats.successful_docs_supabase >= self.config.max_docs_supabase
-            ):
-                pass
-            else:
-                self._upsert_supabase_with_retry(supabase_rows, stats)
+            self._upsert_supabase_with_retry(supabase_rows, stats)
 
             batch_size = getattr(self.config, "batch_size", 100)
             for i in range(0, len(image_points), batch_size):
