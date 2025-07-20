@@ -211,7 +211,7 @@ flowchart TB
 - **Performance**: Sub-second response times with intelligent result caching
 
 **Key Features**:
-- **Hybrid Search Architecture**: Vector search (75% weight) + PostgreSQL full-text (25% weight)
+- **Hybrid Search Architecture**: Vector search (75% weight) + PostgreSQL full-text (25% weight) + Additional Domain match boost depending on query length and domain length
 - **Intelligent Result Fusion**: Advanced scoring algorithms merge results from multiple sources
 - **Text-to-Image Search**: Pure vector search for image discovery using semantic embeddings
 - **Robust Fallbacks**: Vector → Payload fallback + PostgreSQL chain ensures high availability
