@@ -618,11 +618,12 @@ class ModernIndexer:
                 )
 
         # Upsert to Supabase
-        # print(self.config)
         if (
             self.config.max_docs_supabase
-            and stats.successful_docs_supabase < self.config.max_docs_supabase
+            and stats.successful_docs_supabase >= self.config.max_docs_supabase
         ):
+            pass
+        else:
             self._upsert_supabase_with_retry(supabase_rows, stats)
 
     def _create_document_payload(self, doc: dict) -> dict:
