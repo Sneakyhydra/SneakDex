@@ -655,8 +655,8 @@ class ModernIndexer:
                     self.collection_name_images, batch, "images"
                 )
 
-        # Upsert to Supabase (optional, commented out in original)
-        self._upsert_supabase_with_retry(supabase_rows)
+        # Upsert to Supabase
+        # self._upsert_supabase_with_retry(supabase_rows)
 
     def _create_document_payload(self, doc: dict) -> dict:
         """Create optimized document payload"""
