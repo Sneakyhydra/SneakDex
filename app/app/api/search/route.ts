@@ -343,9 +343,19 @@ export async function POST(req: Request) {
     const urlDomain = getDomainFromUrl(r.url || "");
     const queryWords = cleanQuery.toLowerCase().split(/\s+/);
 
-    const domainBoostWeight = 1.0 / queryWords.length;
-    const hasDomainMatch = queryWords.some((word) => urlDomain.includes(word));
-    return hasDomainMatch ? domainBoostWeight : 0;
+    const domainBoostWeight = urlDomain.length / queryWords.length;
+    function hasDomainMatch() {
+      let cnt = 0;
+      for (const word of queryWords) {
+        if (urlDomain.includes(word)) {
+          cnt += 1;
+        }
+      }
+
+      return cnt;
+    }
+    const matchBoost = hasDomainMatch();
+    return matchBoost > 0 ? domainBoostWeight * matchBoost : 0;
   }
 
   try {
