@@ -141,6 +141,7 @@ flowchart TB
 
 ### 🕷️ Crawler Service
 [Go to Crawler README](services/crawler/README.md)
+
 **High-performance distributed web crawler**
 
 - **Technology**: Go + Colly framework
@@ -157,6 +158,7 @@ flowchart TB
 
 ### 📄 Parser Service
 [Go to Parser README](services/parser/README.md)
+
 **High-performance HTML content extraction and processing**
 
 - **Technology**: Rust for memory safety and blazing speed
@@ -173,6 +175,7 @@ flowchart TB
 
 ### 🗃️ Indexer Service
 [Go to Indexer README](services/indexer/README.md)
+
 **Scalable semantic and sparse indexing with vector embeddings**
 
 - **Technology**: Python + Sentence Transformers for AI-powered semantic understanding
@@ -197,6 +200,7 @@ flowchart TB
 
 ### 🚀 App Service
 [Go to App README](app/README.md)
+
 **Full-stack search interface with hybrid search capabilities**
 
 - **Technology**: Next.js ≥15.4.1 with React frontend and API routes backend
@@ -273,9 +277,13 @@ make logs
 ### ⚙️ Configuration
 
 All services are configured via environment variables for container-friendly deployment.
+
 [Go to Crawler Configuration](services/crawler/README.md#️-configuration)
+
 [Go to Parser Configuration](services/parser/README.md#️-configuration)
+
 [Go to Indexer Configuration](services/indexer/README.md#️-configuration)
+
 [Go to App Configuration](app/README.md#️-configuration)
 
 ### Grafana Dashboard
@@ -315,16 +323,16 @@ export NODE_ENV=development
 ```
 sneakdex/
 ├── services/
-│   ├── crawler/          # Web crawling service (Go)
-│   ├── parser/           # Content parsing service (Rust)
-│   ├── indexer/          # Search indexing service (Python)
-│   └── app/              # Search interface service (Next.js)
-│       ├── app/        # Next.js pages and API routes
-│       |   ├── _components/   # React components
-│       |   ├── _contexts/          # Context for state management
-│       |   ├── _types/          # Typescript types
-│       |   ├── api/          # API
-│       └── public/       # Static assets
+│   ├── crawler/                # Web crawling service (Go)
+│   ├── parser/                 # Content parsing service (Rust)
+│   ├── indexer/                # Search indexing service (Python)
+│   └── app/                    # Search interface service (Next.js)
+│       ├── app/                # Next.js pages and API routes
+│       |   ├── _components/    # React components
+│       |   ├── _contexts/      # Context for state management
+│       |   ├── _types/         # Typescript types
+│       |   ├── api/            # API
+│       └── public/             # Static assets
 |
 ├── docker-compose.yml
 │── monitoring/
@@ -385,6 +393,6 @@ MIT License - feel free to use, modify, and contribute to this project.
 
 **Built with ❤️ for the open web**
 
-[⭐ Star us on GitHub](https://github.com/Sneakyhydra/SneakDex.git) • [🐳 Docker Hub](https://hub.docker.com/r/sneakdex)
+[⭐ Star this on GitHub](https://github.com/Sneakyhydra/SneakDex)
 
 </div>

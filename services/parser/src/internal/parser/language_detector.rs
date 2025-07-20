@@ -46,26 +46,26 @@ pub fn detect_language(text: &str) -> Option<String> {
 pub fn map_lang_to_pg(lang: &str) -> &str {
     match lang {
         "en" | "eng" => "english",
-        "de" | "deu" => "german",
-        "fr" | "fra" => "french",
-        "ru" | "rus" => "russian",
-        "es" | "spa" => "spanish",
-        "it" | "ita" => "italian",
-        "pt" | "por" => "portuguese",
-        "nl" | "nld" => "dutch",
-        "sv" | "swe" => "swedish",
-        "fi" | "fin" => "finnish",
-        "no" | "nor" => "norwegian",
-        "da" | "dan" => "danish",
-        "hu" | "hun" => "hungarian",
-        "ro" | "ron" | "rum" => "romanian",
-        "tr" | "tur" => "turkish",
-        "bg" | "bul" => "bulgarian",
-        "ar" | "ara" => "arabic",
-        "cs" | "ces" | "cze" => "czech",
-        "el" | "gre" | "ell" => "greek",
-        "zh" | "zho" | "chi" => "chinese", // Postgres does not support Chinese natively; may need extensions
-        "ja" | "jpn" => "japanese",        // same
-        _ => "simple",                     // fallback
+        // "de" | "deu" => "german",
+        // "fr" | "fra" => "french",
+        // "ru" | "rus" => "russian",
+        // "es" | "spa" => "spanish",
+        // "it" | "ita" => "italian",
+        // "pt" | "por" => "portuguese",
+        // "nl" | "nld" => "dutch",
+        // "sv" | "swe" => "swedish",
+        // "fi" | "fin" => "finnish",
+        // "no" | "nor" => "norwegian",
+        // "da" | "dan" => "danish",
+        // "hu" | "hun" => "hungarian",
+        // "ro" | "ron" | "rum" => "romanian",
+        // "tr" | "tur" => "turkish",
+        // "bg" | "bul" => "bulgarian",
+        // "ar" | "ara" => "arabic",
+        // "cs" | "ces" | "cze" => "czech",
+        // "el" | "gre" | "ell" => "greek",
+        // "zh" | "zho" | "chi" => "chinese", // Postgres does not support Chinese natively; may need extensions
+        // "ja" | "jpn" => "japanese",        // same
+        _ => "simple", // fallback
     }
 }

@@ -38,6 +38,7 @@ class IndexingStats:
 
     total_docs: int = 0
     successful_docs: int = 0
+    successful_docs_supabase: int = 0
     failed_docs: int = 0
     duplicate_docs: int = 0
     total_images: int = 0
@@ -204,7 +205,19 @@ class ModernIndexer:
         title = doc.get("title", "")
         if title:
             title = title.strip()
-            pieces.extend([title, title])  # Double weight for title
+            pieces.extend([title, title, title])  # Double weight for title
+
+        # 5. URL semantic extraction
+        url = doc.get("url", "")
+        if url:
+            url = url.strip()
+            url_keywords = self._extract_url_keywords(url)
+            if url_keywords:
+                pieces.append(url_keywords)
+
+            domain_context = self._extract_domain_context(url)
+            if domain_context:
+                pieces.extend([domain_context, domain_context, domain_context])
 
         # 2. Description - crucial for semantic understanding
         description = doc.get("description")
@@ -236,21 +249,6 @@ class ModernIndexer:
                 # Take first 2000 chars and last 1000 chars with separator
                 content = content[:2000] + " ... " + content[-1000:]
             pieces.append(content)
-
-        # 5. URL semantic extraction
-        url = doc.get("url", "")
-        if url:
-            url = url.strip()
-            url_keywords = self._extract_url_keywords(url)
-            if url_keywords:
-                pieces.append(url_keywords)
-
-            domain_context = self._extract_domain_context(url)
-            if domain_context:
-                pieces.append(domain_context)
-
-            # add url directly
-            pieces.append(url)
 
         # 6. Metadata context
         self._add_metadata_context(doc, pieces)
@@ -404,41 +402,12 @@ class ModernIndexer:
             return ""
 
     def build_image_caption(self, img: dict) -> str:
-        """Build enhanced text for embedding an image"""
-        parts = []
-
-        alt_text = img.get("alt", "")
-        if alt_text:
-            alt_text = alt_text.strip()
-        else:
-            alt_text = ""
-        title_text = img.get("title", "")
-        if title_text:
-            title_text = title_text.strip()
-        else:
-            title_text = ""
-
-        if alt_text:
-            parts.append(alt_text)
-        if title_text and title_text != alt_text:
-            parts.append(title_text)
-
-        # Add page context for better image search
-        page_title = img.get("page_title", "")
-        if page_title:
-            page_title = page_title.strip()
-        else:
-            page_title = ""
-
-        if page_title and len(parts) > 0:  # Only if we have image text
-            parts.append(f"from: {page_title}")
-
-        temp = " ".join(parts)
-        if temp:
-            temp.strip()
-        else:
-            temp = ""
-        return temp
+        """
+        Build text for embedding an image: alt + title.
+        """
+        return " ".join(
+            filter(None, [img.get("alt", ""), img.get("title", "")])
+        ).strip()
 
     def index_batch(self, documents: List[dict]) -> IndexingStats:
         """
@@ -656,7 +625,10 @@ class ModernIndexer:
                 )
 
         # Upsert to Supabase
-        self._upsert_supabase_with_retry(supabase_rows)
+        if self.config.max_docs_supabase and (
+            stats.successful_docs_supabase >= self.config.max_docs_supabase
+        ):
+            self._upsert_supabase_with_retry(supabase_rows, stats)
 
     def _create_document_payload(self, doc: dict) -> dict:
         """Create optimized document payload"""
@@ -727,7 +699,9 @@ class ModernIndexer:
                     raise
                 time.sleep(2**attempt)  # Exponential backoff
 
-    def _upsert_supabase_with_retry(self, rows: List[dict]) -> None:
+    def _upsert_supabase_with_retry(
+        self, rows: List[dict], stats: IndexingStats
+    ) -> None:
         """Upsert rows to Supabase with retry logic"""
         if not rows:
             log.info("No rows to insert into Supabase.")
@@ -740,6 +714,7 @@ class ModernIndexer:
                     log.error(f"Supabase insert returned no data. Response: {response}")
                 else:
                     log.info(f"✅ Inserted {len(response.data)} rows into Supabase.")
+                    stats.successful_docs_supabase += len(rows)
                 return
             except Exception as e:
                 log.warning(

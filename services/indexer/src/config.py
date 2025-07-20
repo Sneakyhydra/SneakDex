@@ -43,6 +43,11 @@ class IndexerConfig(BaseSettings):
         description="Maximum number of documents to process (None = unlimited).",
         validation_alias="MAX_DOCS",
     )
+    max_docs_supabase: int | None = Field(
+        default=None,
+        description="Maximum number of documents to add to supabase (None = unlimited).",
+        validation_alias="MAX_DOCS_SUPABASE",
+    )
 
     # Qdrant
     qdrant_url: str = Field(
