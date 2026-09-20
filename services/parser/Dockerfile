@@ -1,4 +1,4 @@
-FROM rust:1.82-slim
+FROM rust:1.85-slim
 
 # Set working directory
 WORKDIR /app
@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y \
     g++ \
     curl \
     && rm -rf /var/lib/apt/lists/* \
-    && cargo install cargo-watch cargo-chef
+    && cargo install cargo-watch --version 8.5.3 --locked \
+    && cargo install cargo-chef --version 0.1.68 --locked
 
 # Use cargo-chef for better dependency caching
 COPY Cargo.toml Cargo.lock ./

@@ -1,7 +1,7 @@
 # Multi-stage build for production
-FROM rust:1.82-slim AS chef
+FROM rust:1.85-slim AS chef
 WORKDIR /app
-RUN cargo install cargo-chef
+RUN cargo install cargo-chef --version 0.1.68 --locked
 
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./

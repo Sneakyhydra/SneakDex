@@ -16,7 +16,7 @@ volumes:
 
 services:
   kafka:
-    image: bitnami/kafka:4.0.0
+    image: bitnamilegacy/kafka:4.0.0-debian-12-r10
     container_name: sneakdex-kafka
     ports:
       - "9092:9092"
@@ -79,6 +79,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     networks:
       - sneakdex-network
       - monitoring
@@ -127,6 +130,9 @@ services:
     volumes:
       - ./services/indexer:/app
     working_dir: /app
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       kafka:
         condition: service_healthy
@@ -151,6 +157,9 @@ services:
       - WATCHPACK_POLLING=true
     env_file:
       - ./app/.env.local
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     ports:
       - "3000:3000"
     volumes:

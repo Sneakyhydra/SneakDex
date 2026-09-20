@@ -4,8 +4,8 @@ FROM golang:1.24-alpine
 # Install dependencies
 RUN apk add --no-cache git ca-certificates tzdata curl
 
-# Install Air
-RUN go install github.com/air-verse/air@latest
+# Pin Air to a release that still builds on Go 1.24
+RUN go install github.com/air-verse/air@v1.61.7
 
 # Set working directory
 WORKDIR /app
