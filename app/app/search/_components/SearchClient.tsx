@@ -202,12 +202,35 @@ const SearchClient = ({
           <div>
             <p className="text-zinc-300 text-sm font-medium">
               Top {totalResults.toLocaleString()} results. Searched{" "}
-              {data.totalAvailable.qdrant + data.totalAvailable.postgres}{" "}
-              documents.
+              {data.totalAvailable.qdrant.toLocaleString()} in Qdrant
+              {typeof data.totalAvailable.postgres === "number"
+                ? ` · ${data.totalAvailable.postgres.toLocaleString()} in Postgres`
+                : ""}
+              .
             </p>
             <p className="text-zinc-500 text-xs">
-              Source: <span className="text-emerald-400">{data.source}</span>
+              Source:{" "}
+              <span
+                className={
+                  data.postgresError
+                    ? "text-amber-400"
+                    : "text-emerald-400"
+                }
+              >
+                {data.source}
+              </span>
+              {typeof data.postgresHits === "number" && (
+                <span className="text-zinc-500">
+                  {" "}
+                  · Postgres keyword hits: {data.postgresHits}
+                </span>
+              )}
             </p>
+            {data.postgresError && (
+              <p className="text-amber-400/90 text-xs mt-1">
+                Postgres error: {data.postgresError}
+              </p>
+            )}
           </div>
         </div>
 

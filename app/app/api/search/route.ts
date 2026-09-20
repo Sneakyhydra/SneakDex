@@ -96,6 +96,21 @@ type SearchRequest = {
 
 type FieldSchema = "keyword" | "integer" | "float" | "geo" | "boolean" | "text";
 
+function normalizeDocId(id: string | number): string {
+  return String(id).toLowerCase();
+}
+
+function mapPgRows(data: PgResponse[] | null): PgResult[] {
+  return (data ?? []).map(
+    (row): PgResult => ({
+      id: normalizeDocId(row.id),
+      pgScore: row.rank ?? 0,
+      url: row.url,
+      title: row.title,
+    })
+  );
+}
+
 async function ensurePayloadIndexes(
   qdrant: any, // the Qdrant client instance
   collection: string,
@@ -306,7 +321,7 @@ async function searchPayloadOnly(
 
     return (
       results.points?.map((point: any) => ({
-        id: String(point.id),
+        id: normalizeDocId(point.id),
         qdrantScore: 1.0,
         pgScore: 0,
         payload: point.payload ?? null,
@@ -331,7 +346,7 @@ function generateCacheKey(
     : "none";
   const embeddingsKey = useEmbeddings ? "vec" : "payload";
 
-  return `search:${baseKey}:${top_k}:${embeddingsKey}:${filtersKey}`;
+  return `search:v2:${baseKey}:${top_k}:${embeddingsKey}:${filtersKey}`;
 }
 
 // === MAIN HANDLER ===
@@ -482,7 +497,7 @@ export async function POST(req: Request) {
 
         return hits.map(
           (hit): QdrantResult => ({
-            id: String(hit.id),
+            id: normalizeDocId(hit.id),
             qdrantScore: hit.score ?? 0,
             pgScore: 0,
             payload: hit.payload ?? null,
@@ -521,14 +536,7 @@ export async function POST(req: Request) {
           return [];
         }
 
-        return (data ?? []).map(
-          (row: PgResponse): PgResult => ({
-            id: String(row.id),
-            pgScore: row.rank ?? 0,
-            url: row.url,
-            title: row.title,
-          })
-        );
+        return mapPgRows(data);
       } catch (error) {
         postgresError =
           error instanceof Error ? error.message : String(error);
@@ -539,6 +547,36 @@ export async function POST(req: Request) {
 
     // Execute searches in parallel
     [qdrantResults, pgResults] = await Promise.all([qdrantPromise, pgPromise]);
+
+    // Keyword top-k and vector top-k barely overlap, so score the Qdrant
+    // hits in Postgres too. Otherwise every visible pgScore stays 0.
+    if (qdrantResults.length > 0 && !postgresError) {
+      try {
+        const { data, error } = await supabase.rpc("rank_documents", {
+          q: cleanQuery,
+          doc_ids: qdrantResults.map((r) => r.id),
+        });
+
+        if (error) {
+          console.error("Supabase rank_documents error:", error);
+          if (pgResults.length === 0) {
+            postgresError = error.message ?? JSON.stringify(error);
+          }
+        } else {
+          const ranked = mapPgRows(data);
+          const byId = new Map<string, PgResult>();
+          for (const row of [...pgResults, ...ranked]) {
+            const existing = byId.get(row.id);
+            if (!existing || row.pgScore > existing.pgScore) {
+              byId.set(row.id, row);
+            }
+          }
+          pgResults = Array.from(byId.values());
+        }
+      } catch (error) {
+        console.error("Supabase rank_documents failed:", error);
+      }
+    }
 
     // Handle empty results
     if (qdrantResults.length === 0 && pgResults.length === 0) {
@@ -558,7 +596,6 @@ export async function POST(req: Request) {
     let source: string;
 
     if (qdrantResults.length > 0 && pgResults.length === 0) {
-      // Only Qdrant results
       finalResults = qdrantResults
         .map((r) => ({
           ...r,
@@ -566,7 +603,8 @@ export async function POST(req: Request) {
         }))
         .sort((a, b) => b.hybridScore - a.hybridScore)
         .slice(0, top_k);
-      source = payloadSeachedAlready ? "Qdrant payload" : "Qdrant vector";
+      const qLabel = payloadSeachedAlready ? "Qdrant payload" : "Qdrant vector";
+      source = postgresError ? qLabel : `${qLabel} + Supabase`;
     } else if (pgResults.length > 0 && qdrantResults.length === 0) {
       // Only Supabase results - enrich with Qdrant payloads
       const ids = pgResults.map((r) => r.id);
@@ -579,7 +617,7 @@ export async function POST(req: Request) {
         });
 
         const payloadMap = new Map(
-          points.map((point) => [String(point.id), point.payload])
+          points.map((point) => [normalizeDocId(point.id), point.payload])
         );
 
         enrichedPgResults = pgResults.map((r) => ({
@@ -663,7 +701,7 @@ export async function POST(req: Request) {
             with_payload: true,
           });
           const payloadMap = new Map(
-            points.map((point) => [String(point.id), point.payload])
+            points.map((point) => [normalizeDocId(point.id), point.payload])
           );
           for (const r of finalResults) {
             if (!r.payload && payloadMap.has(r.id)) {
@@ -696,6 +734,7 @@ export async function POST(req: Request) {
       query: cleanQuery,
       top_k,
       useEmbeddings,
+      postgresHits: pgResults.length,
       totalAvailable: {
         qdrant: totalDocumentsQdrant,
         postgres: totalDocumentsPostgres,
