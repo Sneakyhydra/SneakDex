@@ -79,14 +79,19 @@ class IndexerConfig(BaseSettings):
     )
 
     # Supabase
+    index_supabase: bool = Field(
+        default=True,
+        description="Write documents to Supabase. Set false when Postgres is full.",
+        validation_alias="INDEX_SUPABASE",
+    )
     supabase_url: str = Field(
         default="",
-        description="Supabase project URL (required).",
+        description="Supabase project URL (required when INDEX_SUPABASE is true).",
         validation_alias="SUPABASE_URL",
     )
     supabase_api_key: str = Field(
         default="",
-        description="Supabase service role API key (required).",
+        description="Supabase service role API key (required when INDEX_SUPABASE is true).",
         validation_alias="SUPABASE_API_KEY",
     )
 
@@ -112,10 +117,11 @@ class IndexerConfig(BaseSettings):
 
         if not self.qdrant_url.strip():
             errors.append("QDRANT_URL is required and cannot be empty.")
-        if not self.supabase_url.strip():
-            errors.append("SUPABASE_URL is required and cannot be empty.")
-        if not self.supabase_api_key.strip():
-            errors.append("SUPABASE_API_KEY is required and cannot be empty.")
+        if self.index_supabase:
+            if not self.supabase_url.strip():
+                errors.append("SUPABASE_URL is required and cannot be empty.")
+            if not self.supabase_api_key.strip():
+                errors.append("SUPABASE_API_KEY is required and cannot be empty.")
 
         if self.batch_size <= 0:
             errors.append("BATCH_SIZE must be > 0.")

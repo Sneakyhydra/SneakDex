@@ -134,16 +134,19 @@ def setup_routes(app: web.Application, indexer) -> None:
             qdrant_status = f"error: {e}"
 
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda: indexer.supabase.table("documents")
-                    .select("id")
-                    .limit(1)
-                    .execute()
-                ),
-                timeout=5,
-            )
-            supabase_status = "ok"
+            if not getattr(indexer.config, "index_supabase", True):
+                supabase_status = "disabled"
+            else:
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        lambda: indexer.supabase.table("documents")
+                        .select("id")
+                        .limit(1)
+                        .execute()
+                    ),
+                    timeout=5,
+                )
+                supabase_status = "ok"
         except Exception as e:
             log.exception("Supabase health check failed")
             supabase_status = f"error: {e}"
@@ -153,7 +156,9 @@ def setup_routes(app: web.Application, indexer) -> None:
         )
 
         status = (
-            "ok" if qdrant_status == "ok" and supabase_status == "ok" else "degraded"
+            "ok"
+            if qdrant_status == "ok" and supabase_status in ("ok", "disabled")
+            else "degraded"
         )
 
         return web.json_response(

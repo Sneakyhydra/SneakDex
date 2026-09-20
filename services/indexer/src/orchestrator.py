@@ -72,9 +72,14 @@ class ModernIndexer:
 
         # Initialize clients
         self._initialize_qdrant()
-        self._initialize_supabase()
         self._qdrant_writable = True
-        self._supabase_writable = True
+        self._supabase_enabled = bool(self.config.index_supabase)
+        self._supabase_writable = self._supabase_enabled
+        if self._supabase_enabled:
+            self._initialize_supabase()
+        else:
+            self.supabase = None
+            log.warning("Supabase indexing is disabled (INDEX_SUPABASE=false)")
 
     def _initialize_model(self, model_name: str) -> None:
         """Initialize embedding model with proper error handling"""
@@ -458,15 +463,16 @@ class ModernIndexer:
                 language = doc.get("language", "simple")
                 if language in {"chinese", "japanese", None, ""}:
                     language = "simple"
-                supabase_rows.append(
-                    {
-                        "id": doc_id,
-                        "url": doc.get("url"),
-                        "title": doc.get("title"),
-                        "lang": language,
-                        "_tmp_content": doc.get("cleaned_text", ""),
-                    }
-                )
+                if self._supabase_enabled:
+                    supabase_rows.append(
+                        {
+                            "id": doc_id,
+                            "url": doc.get("url"),
+                            "title": doc.get("title"),
+                            "lang": language,
+                            "_tmp_content": doc.get("cleaned_text", ""),
+                        }
+                    )
 
             valid_images = []
             captions = []
@@ -507,7 +513,9 @@ class ModernIndexer:
             qdrant_ok = self._upsert_qdrant_with_retry(
                 self.collection_name, points, "documents"
             )
-            supabase_ok = self._upsert_supabase_with_retry(supabase_rows, stats)
+            supabase_ok = True
+            if self._supabase_enabled:
+                supabase_ok = self._upsert_supabase_with_retry(supabase_rows, stats)
 
             images_ok = True
             batch_size = getattr(self.config, "batch_size", 100)
@@ -605,6 +613,9 @@ class ModernIndexer:
         self, rows: List[dict], stats: IndexingStats
     ) -> bool:
         """Upsert rows to Supabase. Returns False on failure; does not raise."""
+        if not self._supabase_enabled:
+            return True
+
         if not rows:
             log.info("No rows to insert into Supabase.")
             return True
