@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { QdrantClient } from "@qdrant/js-client-rest";
-import { pipeline } from "@xenova/transformers";
 import { Redis } from "@upstash/redis";
 
 // === CONFIG ===
@@ -17,11 +16,8 @@ if (!COLLECTION_NAME_IMAGES) {
   throw new Error("Missing QDRANT_COLLECTION_NAME_IMAGES in environment");
 }
 
-// === VERCEL OPTIMIZATIONS ===
-export const config = {
-  runtime: "nodejs",
-  maxDuration: 30, // Increase timeout for model loading
-};
+export const runtime = "nodejs";
+export const maxDuration = 30;
 
 // === CLIENTS ===
 const qdrant = new QdrantClient({ url: QDRANT_URL, apiKey: QDRANT_API_KEY });
@@ -95,7 +91,10 @@ async function ensurePayloadIndexes(
 async function getEmbedder() {
   if (!modelPromise) {
     console.log("Loading embedding model...");
-    modelPromise = pipeline("feature-extraction", "Xenova/all-MiniLM-L12-v2");
+    modelPromise = (async () => {
+      const { pipeline } = await import("@xenova/transformers");
+      return pipeline("feature-extraction", "Xenova/all-MiniLM-L12-v2");
+    })();
   }
   lastUsed = Date.now();
   return await modelPromise;
@@ -172,7 +171,7 @@ async function computeEmbedding(query: string): Promise<number[]> {
 
 async function computeEmbeddingWithHF(query: string): Promise<number[]> {
   const response = await fetch(
-    "https://router.huggingface.co/hf-inference/models/intfloat/multilingual-e5-large/pipeline/feature-extraction",
+    "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L12-v2/pipeline/feature-extraction",
     {
       headers: {
         Authorization: `Bearer ${HF_API_KEY}`,
