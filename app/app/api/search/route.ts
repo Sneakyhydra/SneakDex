@@ -25,7 +25,11 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // === CLIENTS ===
-const qdrant = new QdrantClient({ url: QDRANT_URL, apiKey: QDRANT_API_KEY });
+const qdrant = new QdrantClient({
+  url: QDRANT_URL,
+  apiKey: QDRANT_API_KEY,
+  checkCompatibility: false,
+});
 const supabase = createClient(SUPABASE_URL, SUPABASE_API_KEY);
 
 // === OPTIMIZED EMBEDDING SYSTEM ===
@@ -127,7 +131,10 @@ async function getEmbedder() {
   if (!modelPromise) {
     console.log("Loading embedding model...");
     modelPromise = (async () => {
-      const { pipeline } = await import("@xenova/transformers");
+      const { pipeline, env } = await import("@xenova/transformers");
+      // Vercel’s /var/task filesystem is read-only; cache models in /tmp.
+      env.cacheDir = "/tmp/transformers-cache";
+      env.allowLocalModels = false;
       return pipeline("feature-extraction", "Xenova/all-MiniLM-L12-v2");
     })();
   }
@@ -435,6 +442,7 @@ export async function POST(req: Request) {
     let qdrantResults: QdrantResult[] = [];
     let pgResults: PgResult[] = [];
     let payloadSeachedAlready = false;
+    let postgresError: string | null = null;
 
     // === QDRANT SEARCH ===
     const qdrantPromise = (async (): Promise<QdrantResult[]> => {
@@ -508,7 +516,8 @@ export async function POST(req: Request) {
         });
 
         if (error) {
-          console.error("Supabase error:", error);
+          postgresError = error.message ?? JSON.stringify(error);
+          console.error("Supabase search_documents error:", error);
           return [];
         }
 
@@ -521,6 +530,8 @@ export async function POST(req: Request) {
           })
         );
       } catch (error) {
+        postgresError =
+          error instanceof Error ? error.message : String(error);
         console.error("Supabase search failed:", error);
         return [];
       }
@@ -689,6 +700,7 @@ export async function POST(req: Request) {
         qdrant: totalDocumentsQdrant,
         postgres: totalDocumentsPostgres,
       },
+      ...(postgresError ? { postgresError } : {}),
     });
   } catch (err) {
     console.error("Search endpoint error:", err);

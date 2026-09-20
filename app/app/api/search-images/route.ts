@@ -20,7 +20,11 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // === CLIENTS ===
-const qdrant = new QdrantClient({ url: QDRANT_URL, apiKey: QDRANT_API_KEY });
+const qdrant = new QdrantClient({
+  url: QDRANT_URL,
+  apiKey: QDRANT_API_KEY,
+  checkCompatibility: false,
+});
 
 // === OPTIMIZED EMBEDDING SYSTEM ===
 let modelPromise: Promise<any> | null = null;
@@ -92,7 +96,9 @@ async function getEmbedder() {
   if (!modelPromise) {
     console.log("Loading embedding model...");
     modelPromise = (async () => {
-      const { pipeline } = await import("@xenova/transformers");
+      const { pipeline, env } = await import("@xenova/transformers");
+      env.cacheDir = "/tmp/transformers-cache";
+      env.allowLocalModels = false;
       return pipeline("feature-extraction", "Xenova/all-MiniLM-L12-v2");
     })();
   }
