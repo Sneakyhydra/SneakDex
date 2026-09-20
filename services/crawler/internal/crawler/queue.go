@@ -18,7 +18,6 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan c
 	c.Log.Info("Starting Redis queue feeder goroutine")
 
 	emptyQueueChecks := 0
-	const maxEmptyChecks = 5
 
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
@@ -30,8 +29,8 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan c
 			collector.Wait()
 			return
 		case <-ticker.C:
-			// Check if page processing limit is reached
-			if c.Stats.GetPagesProcessed() >= c.Cfg.MaxPages {
+			// 0 means unlimited — keep crawling until the process is stopped or stores fail.
+			if c.Cfg.MaxPages > 0 && c.Stats.GetPagesProcessed() >= c.Cfg.MaxPages {
 				c.Log.Info("Max page limit reached, stopping Redis queue feeder")
 				return
 			}
@@ -45,15 +44,8 @@ func (c *Crawler) feedCollyFromRedisQueue(collector *colly.Collector, doneChan c
 			item, err := c.RemoveFromPending()
 			if err == redis.Nil {
 				emptyQueueChecks++
-				c.Log.WithField("empty_checks", emptyQueueChecks).Debug("No URLs in Redis pending queue")
-
-				// Stop if queue is empty for prolonged checks and no active work remains
-				if emptyQueueChecks >= maxEmptyChecks {
-					if c.Stats.GetInflightPages() == 0 {
-						c.Log.Info("Queue is consistently empty and no pages being processed. Exiting feeder.")
-						return
-					}
-					c.Log.Debug("Queue still empty, but conditions not met to terminate. Retrying...")
+				if emptyQueueChecks == 1 || emptyQueueChecks%12000 == 0 {
+					c.Log.WithField("empty_checks", emptyQueueChecks).Info("Pending queue empty; waiting for more URLs")
 				}
 				continue
 			} else if err != nil {

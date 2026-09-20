@@ -4,7 +4,7 @@ Loads settings from environment variables or `.env` file.
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 
 class IndexerConfig(BaseSettings):
@@ -40,14 +40,21 @@ class IndexerConfig(BaseSettings):
     )
     max_docs: int | None = Field(
         default=None,
-        description="Maximum number of documents to process (None = unlimited).",
+        description="Maximum number of documents to process (None/0 = unlimited).",
         validation_alias="MAX_DOCS",
     )
     max_docs_supabase: int | None = Field(
         default=None,
-        description="Maximum number of documents to add to supabase (None = unlimited).",
+        description="Maximum number of documents to add to supabase (None/0 = unlimited).",
         validation_alias="MAX_DOCS_SUPABASE",
     )
+
+    @field_validator("max_docs", "max_docs_supabase", mode="before")
+    @classmethod
+    def unlimited_docs(cls, value: object) -> object:
+        if value in ("", 0, "0", None):
+            return None
+        return value
 
     # Qdrant
     qdrant_url: str = Field(

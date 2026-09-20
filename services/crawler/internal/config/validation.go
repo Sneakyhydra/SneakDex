@@ -177,12 +177,12 @@ func (c *Config) validateCrawling() error {
 		}
 	}
 
-	if c.MaxPages < 1 || c.MaxPages > 1000000 {
+	if c.MaxPages < 0 {
 		return &ConfigError{
 			Field:   "MAX_PAGES",
 			Value:   fmt.Sprintf("%d", c.MaxPages),
-			Reason:  "must be between 1 and 1,000,000",
-			Example: "10000",
+			Reason:  "must be 0 (unlimited) or a positive page cap",
+			Example: "0",
 		}
 	}
 

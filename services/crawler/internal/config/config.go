@@ -46,8 +46,8 @@ type Config struct {
 
 	// Crawling Behavior - Core crawling parameters and URL management
 	StartURLs    string `envconfig:"START_URLS" default:"https://www.dhruvrishishwar.com,https://en.wikipedia.org/wiki/Special:Random,https://simple.wikipedia.org/wiki/Special:Random,https://news.ycombinator.com,https://www.reuters.com/news/archive/worldNews,https://www.bbc.com/news,https://github.com/trending,https://stackoverflow.com/questions,https://dev.to,https://developer.mozilla.org/en-US/docs/Web,https://arxiv.org/list/cs/new,https://eng.uber.com,https://netflixtechblog.com,https://blog.cloudflare.com"`
-	CrawlDepth   int    `envconfig:"CRAWL_DEPTH" default:"3"`
-	MaxPages     int64  `envconfig:"MAX_PAGES" default:"10000"`
+	CrawlDepth   int    `envconfig:"CRAWL_DEPTH" default:"10"`
+	MaxPages     int64  `envconfig:"MAX_PAGES" default:"0"`
 	URLWhitelist string `envconfig:"URL_WHITELIST" default:""`
 	URLBlacklist string `envconfig:"URL_BLACKLIST" default:""`
 
