@@ -73,6 +73,8 @@ class ModernIndexer:
         # Initialize clients
         self._initialize_qdrant()
         self._initialize_supabase()
+        self._qdrant_writable = True
+        self._supabase_writable = True
 
     def _initialize_model(self, model_name: str) -> None:
         """Initialize embedding model with proper error handling"""
@@ -501,19 +503,35 @@ class ModernIndexer:
 
             stats.embedding_time = time.time() - embedding_start
 
-            self._upsert_qdrant_with_retry(self.collection_name, points, "documents")
-            self._upsert_supabase_with_retry(supabase_rows, stats)
+            # Writes are independent: a full/failing store must not block the other.
+            qdrant_ok = self._upsert_qdrant_with_retry(
+                self.collection_name, points, "documents"
+            )
+            supabase_ok = self._upsert_supabase_with_retry(supabase_rows, stats)
 
+            images_ok = True
             batch_size = getattr(self.config, "batch_size", 100)
             for i in range(0, len(image_points), batch_size):
                 batch = image_points[i : i + batch_size]
-                self._upsert_qdrant_with_retry(
+                if not self._upsert_qdrant_with_retry(
                     self.collection_name_images, batch, "images"
-                )
+                ):
+                    images_ok = False
 
-            stats.successful_docs += len(points)
+            if qdrant_ok:
+                stats.successful_docs += len(points)
+            else:
+                stats.failed_docs += len(points)
+            if images_ok:
+                stats.successful_images += len(image_points)
+            else:
+                stats.failed_images += len(image_points)
+
+            if not qdrant_ok and not supabase_ok:
+                log.error("Both Qdrant and Supabase failed this batch; Kafka will still continue")
         except Exception as e:
-            print(e)
+            log.exception("Batch indexing failed before store writes: %s", e)
+            stats.failed_docs = stats.total_docs
 
         stats.processing_time = time.time() - start_time
 
@@ -522,13 +540,41 @@ class ModernIndexer:
 
         return stats
 
+    @staticmethod
+    def _is_capacity_error(error: Exception) -> bool:
+        text = str(error).lower()
+        return any(
+            token in text
+            for token in (
+                "no space left",
+                "disk full",
+                "quota",
+                "storage limit",
+                "exceeded the disk",
+                "exceeded disk",
+                "resource exhausted",
+                "payload too large",
+                "507",
+                "could not extend file",
+                "over the storage",
+                "project disk",
+                "free tier",
+            )
+        )
+
     def _upsert_qdrant_with_retry(
         self, collection: str, points: List[PointStruct], label: str
-    ) -> None:
-        """Upsert points to Qdrant with retry logic"""
+    ) -> bool:
+        """Upsert points to Qdrant. Returns False on failure; does not raise."""
         if not points:
             log.info(f"No {label} to index into Qdrant.")
-            return
+            return True
+
+        if not self._qdrant_writable:
+            log.warning(
+                f"Skipping Qdrant {label} upsert; Qdrant previously reported full/unavailable"
+            )
+            return False
 
         for attempt in range(self.retry_attempts):
             try:
@@ -536,7 +582,7 @@ class ModernIndexer:
                 log.info(
                     f"✅ Indexed {len(points)} {label} into Qdrant collection '{collection}'."
                 )
-                return
+                return True
             except Exception as e:
                 log.warning(
                     f"Attempt {attempt + 1} failed to upsert {label} to Qdrant: {e}"
@@ -545,16 +591,29 @@ class ModernIndexer:
                     log.error(
                         f"❌ Failed to upsert {label} to Qdrant after {self.retry_attempts} attempts"
                     )
-                    raise
-                time.sleep(2**attempt)  # Exponential backoff
+                    if self._is_capacity_error(e):
+                        self._qdrant_writable = False
+                        log.error(
+                            "Qdrant looks full; continuing to write other stores"
+                        )
+                    return False
+                time.sleep(2**attempt)
+
+        return False
 
     def _upsert_supabase_with_retry(
         self, rows: List[dict], stats: IndexingStats
-    ) -> None:
-        """Upsert rows to Supabase with retry logic"""
+    ) -> bool:
+        """Upsert rows to Supabase. Returns False on failure; does not raise."""
         if not rows:
             log.info("No rows to insert into Supabase.")
-            return
+            return True
+
+        if not self._supabase_writable:
+            log.warning(
+                "Skipping Supabase upsert; Postgres previously reported full/unavailable"
+            )
+            return False
 
         for attempt in range(self.retry_attempts):
             try:
@@ -564,7 +623,7 @@ class ModernIndexer:
                 else:
                     log.info(f"✅ Inserted {len(response.data)} rows into Supabase.")
                     stats.successful_docs_supabase += len(rows)
-                return
+                return True
             except Exception as e:
                 log.warning(
                     f"Attempt {attempt + 1} failed to upsert rows to Supabase: {e}"
@@ -573,8 +632,15 @@ class ModernIndexer:
                     log.error(
                         f"❌ Failed to upsert rows to Supabase after {self.retry_attempts} attempts"
                     )
-                    raise
+                    if self._is_capacity_error(e):
+                        self._supabase_writable = False
+                        log.error(
+                            "Supabase looks full; continuing to write other stores"
+                        )
+                    return False
                 time.sleep(2**attempt)
+
+        return False
 
     def _log_indexing_stats(self, stats: IndexingStats) -> None:
         """Log comprehensive indexing statistics"""
